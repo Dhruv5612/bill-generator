@@ -5,6 +5,14 @@ const { generatePDF } = require("../utils/pdfgenerator.util");
 const generateBill = async (req, res) => {
   try {
     const billData = req.body;
+    billData.userId = req.userId;
+    if (!billData.billType) {
+      billData.billType = "sales";
+    }
+    // If purchase bill, keep buyerName aligned with supplierName for seamless legacy fallback
+    if (billData.billType === "purchase" && billData.supplierName && !billData.buyerName) {
+      billData.buyerName = billData.supplierName;
+    }
 
     const existingBill = await Bill.findOne({
       invoiceNumber: billData.invoiceNumber,
@@ -21,6 +29,8 @@ const generateBill = async (req, res) => {
 
     // Generate PDF
     const pdfBuffer = await generatePDF(billData);
+    const isPurchase = billData.billType === "purchase";
+    const filePrefix = isPurchase ? "Purchase_Bill" : "Invoice";
 
     // Try to send Email in background (non-blocking)
     try {
@@ -33,13 +43,15 @@ const generateBill = async (req, res) => {
       });
 
       transporter.sendMail({
-        from: `"${billData.companyName || 'Invoice Generator'}" <${process.env.EMAIL_USER}>`,
+        from: `"${billData.companyName || 'BillCraft'}" <${process.env.EMAIL_USER}>`,
         to: billData.email,
-        subject: `Invoice ${billData.invoiceNumber || ''} from ${billData.companyName || 'Us'}`,
-        text: "Please find your attached invoice.",
+        subject: isPurchase 
+          ? `Purchase Bill ${billData.invoiceNumber || ''} for ${billData.companyName || 'Us'}`
+          : `Invoice ${billData.invoiceNumber || ''} from ${billData.companyName || 'Us'}`,
+        text: `Please find attached your ${isPurchase ? "purchase bill" : "sales tax invoice"}.`,
         attachments: [
           {
-            filename: `Invoice_${billData.invoiceNumber || 'document'}.pdf`,
+            filename: `${filePrefix}_${(billData.invoiceNumber || 'document').replace(/[\/\\]/g, '-')}.pdf`,
             content: pdfBuffer,
           },
         ],
@@ -53,19 +65,25 @@ const generateBill = async (req, res) => {
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename=Invoice_${billData.invoiceNumber || "document"}.pdf`
+      `attachment; filename=${filePrefix}_${(billData.invoiceNumber || "document").replace(/[\/\\]/g, '-')}.pdf`
     );
     res.status(200).send(pdfBuffer);
     
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Something went wrong!" });
+    console.error("Bill generation error:", error);
+    if (error.name === "ValidationError") {
+      return res.status(400).json({ message: error.message });
+    }
+    if (error.code === 11000) {
+      return res.status(400).json({ message: "Invoice number already exists. Please choose a different number." });
+    }
+    res.status(500).json({ message: error.message || "Failed to generate bill" });
   }
 };
 
 const getAllInvoices = async (req, res) => {
   try {
-    const invoices = await Bill.find().sort({ _id: -1 });
+    const invoices = await Bill.find({ userId: req.userId }).sort({ _id: -1 });
     res.status(200).json(invoices);
   } catch (error) {
     console.error("Failed to fetch invoices:", error);
@@ -76,19 +94,21 @@ const getAllInvoices = async (req, res) => {
 const downloadInvoicePDF = async (req, res) => {
   try {
     const { id } = req.params;
-    const invoiceData = await Bill.findById(id);
+    const invoiceData = await Bill.findOne({ _id: id, userId: req.userId });
     if (!invoiceData) {
       return res.status(404).json({ message: "Invoice not found" });
     }
     
     // Generate PDF using existing util
     const pdfBuffer = await generatePDF(invoiceData);
+    const isPurchase = invoiceData.billType === "purchase";
+    const filePrefix = isPurchase ? "Purchase_Bill" : "Invoice";
     
     // Return the PDF buffer directly
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename=Invoice_${invoiceData.invoiceNumber || "document"}.pdf`
+      `attachment; filename=${filePrefix}_${(invoiceData.invoiceNumber || "document").replace(/[\/\\]/g, '-')}.pdf`
     );
     res.status(200).send(pdfBuffer);
   } catch (error) {
@@ -100,7 +120,7 @@ const downloadInvoicePDF = async (req, res) => {
 const deleteInvoice = async (req, res) => {
   try {
     const { id } = req.params;
-    const deletedInvoice = await Bill.findByIdAndDelete(id);
+    const deletedInvoice = await Bill.findOneAndDelete({ _id: id, userId: req.userId });
     if (!deletedInvoice) {
       return res.status(404).json({ message: "Invoice not found" });
     }

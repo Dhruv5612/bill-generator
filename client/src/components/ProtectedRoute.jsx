@@ -5,8 +5,8 @@ const ProtectedRoute = ({ element }) => {
   const token = sessionStorage.getItem("token");
 
   if (!token) {
-    // If no token, redirect to sign-in (root)
-    return <Navigate to="/" replace />;
+    // If no token, redirect to sign-in
+    return <Navigate to="/signin" replace />;
   }
 
   // Otherwise, render the requested component

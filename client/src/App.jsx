@@ -6,6 +6,20 @@ const App = ({ element }) => {
   const navigate = useNavigate();
   const location = useLocation();
 
+  // Lock the browser address bar to the single root URL "/"
+  useEffect(() => {
+    if (window.location.pathname !== "/" || window.location.hash !== "") {
+      window.history.replaceState(null, "", "/");
+    }
+  }, []);
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    if (location.pathname) {
+      sessionStorage.setItem("lastRoute", location.pathname);
+    }
+  }, [location.pathname]);
+
   useEffect(() => {
     let timeoutId;
     const IDLE_TIMEOUT = 30 * 60 * 1000; // 30 minutes in milliseconds
@@ -18,7 +32,7 @@ const App = ({ element }) => {
         const timeSinceLastActivity = Date.now() - parseInt(lastActivity, 10);
         if (timeSinceLastActivity >= IDLE_TIMEOUT) {
           // User has been idle for 30+ minutes (even if tab was closed)
-          if (location.pathname !== "/" && location.pathname !== "/signup") {
+          if (location.pathname !== "/" && location.pathname !== "/signup" && location.pathname !== "/signin" && location.pathname !== "/login") {
             sessionStorage.removeItem("token");
             sessionStorage.removeItem("user");
             sessionStorage.removeItem("lastActivity");

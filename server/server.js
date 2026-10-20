@@ -14,10 +14,50 @@ const authRoute = require("./routes/auth.route");
 app.use(cors());
 app.use(bodyParser.json());
 
-app.use("/api", billGenerateRoute);
-app.use("/api/auth", authRoute);
+// Database connection middleware for serverless invocations
+app.use(async (req, res, next) => {
+  // Allow health check to succeed or report status without failing request immediately
+  if (req.path === "/api/health" || req.path === "/health") {
+    return next();
+  }
+  try {
+    await connectDB();
+    next();
+  } catch (err) {
+    console.error("Database connection middleware error:", err.message);
+    return res.status(500).json({
+      message: "Database connection failed. Please check MONGODB_URI and MongoDB Atlas Network IP Whitelist (0.0.0.0/0).",
+      error: err.message,
+    });
+  }
+});
 
-connectDB();
+// Health check endpoint for verifying deployment & DB status
+app.get(["/api/health", "/health"], async (req, res) => {
+  let dbStatus = "disconnected";
+  try {
+    await connectDB();
+    dbStatus = "connected";
+  } catch (err) {
+    dbStatus = "error: " + err.message;
+  }
+  res.status(200).json({
+    status: "ok",
+    message: "Billing System API is operational",
+    database: dbStatus,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+app.get(["/api", "/"], (req, res) => {
+  res.status(200).json({ message: "Billing System API is running" });
+});
+
+app.use("/api/auth", authRoute);
+app.use("/api", billGenerateRoute);
+
+// Connect once on initialization in local/traditional servers
+connectDB().catch((err) => console.error("Initial DB connect error:", err.message));
 
 if (process.env.NODE_ENV !== "production") {
   app.listen(PORT, () => {
