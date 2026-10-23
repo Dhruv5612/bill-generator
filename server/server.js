@@ -12,7 +12,7 @@ const billGenerateRoute = require("./routes/billgenerator.route");
 const authRoute = require("./routes/auth.route");
 
 // Middleware
-app.use(cors());
+app.use(cors({ origin: true, credentials: true }));
 app.use(bodyParser.json());
 
 // Database connection middleware for serverless invocations
@@ -54,8 +54,8 @@ app.get(["/api", "/"], (req, res) => {
   res.status(200).json({ message: "Billing System API is running" });
 });
 
-app.use("/api/auth", authRoute);
-app.use("/api", billGenerateRoute);
+app.use(["/api/auth", "/auth"], authRoute);
+app.use(["/api", "/"], billGenerateRoute);
 
 // Connect once on initialization in local/traditional servers
 connectDB().catch((err) => console.error("Initial DB connect error:", err.message));
