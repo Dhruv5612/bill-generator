@@ -18,7 +18,7 @@ app.use(bodyParser.json());
 // Database connection middleware for serverless invocations
 app.use(async (req, res, next) => {
   // Allow health check to succeed or report status without failing request immediately
-  if (req.path === "/api/health" || req.path === "/health") {
+  if (req.path === "/api/health" || req.path === "/health" || req.url.includes("health")) {
     return next();
   }
   try {
