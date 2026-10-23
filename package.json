@@ -4,7 +4,7 @@
   "private": true,
   "description": "Billing System - Monorepo root for Vercel deployment",
   "scripts": {
-    "build": "pnpm --filter client run build",
+    "build": "pnpm --filter client run build && node -e \"require('fs').cpSync('client/dist', 'dist', {recursive: true})\"",
     "start": "node server/server.js"
   },
   "dependencies": {

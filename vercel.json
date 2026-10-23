@@ -1,7 +1,7 @@
 {
   "version": 2,
-  "buildCommand": "pnpm --filter client run build",
-  "outputDirectory": "client/dist",
+  "buildCommand": "pnpm run build",
+  "outputDirectory": "dist",
   "functions": {
     "api/*.js": {
       "includeFiles": "server/**"
