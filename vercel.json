@@ -5,6 +5,9 @@
   "functions": {
     "api/*.js": {
       "includeFiles": "server/**"
+    },
+    "dist/api/*.js": {
+      "includeFiles": "dist/server/**"
     }
   },
   "rewrites": [
