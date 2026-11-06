@@ -27,14 +27,9 @@ app.use(async (req, res, next) => {
     next();
   } catch (err) {
     console.error("Database connection middleware warning:", err.message);
-    if (process.env.NODE_ENV !== "production") {
-      req.dbConnected = false;
-      return next();
-    }
-    return res.status(500).json({
-      message: "Database connection failed. Please check MONGODB_URI and MongoDB Atlas Network IP Whitelist (0.0.0.0/0).",
-      error: err.message,
-    });
+    req.dbConnected = false;
+    // Allow request to continue with graceful in-memory storage instead of crashing with 500
+    return next();
   }
 });
 
