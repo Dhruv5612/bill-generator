@@ -9,7 +9,7 @@ const inMemoryUsers = new Map();
 const demoSalt = bcrypt.genSaltSync(10);
 const demoHash = bcrypt.hashSync("password123", demoSalt);
 inMemoryUsers.set("demo@example.com", {
-  _id: "demo-user-id-001",
+  _id: "672000000000000000000001",
   name: "Demo Merchant",
   email: "demo@example.com",
   password: demoHash,
@@ -54,7 +54,7 @@ const saveUserRecord = async (userObj, isNew = false) => {
 
   // Fallback to in-memory store
   if (!userObj._id) {
-    userObj._id = "user_" + Date.now();
+    userObj._id = new mongoose.Types.ObjectId().toString();
   }
   inMemoryUsers.set(userObj.email, userObj);
   return userObj;

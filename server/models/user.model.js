@@ -25,6 +25,21 @@ const userSchema = new mongoose.Schema(
     otpExpiresAt: {
       type: Date,
     },
+    companies: [
+      {
+        companyName: { type: String, required: true },
+        companyAddress: { type: String, default: "" },
+        companyEmail: { type: String, default: "" },
+        companyMobile: { type: String, default: "" },
+        companyPAN: { type: String, default: "" },
+        companyGSTIN: { type: String, default: "" },
+        bankName: { type: String, default: "" },
+        bankAcNo: { type: String, default: "" },
+        bankIFSC: { type: String, default: "" },
+        isProtected: { type: Boolean, default: true },
+        createdAt: { type: Date, default: Date.now },
+      },
+    ],
   },
   { timestamps: true }
 );

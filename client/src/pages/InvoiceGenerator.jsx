@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { toast } from "react-toastify";
 import { useNavigate, useLocation, Link } from "react-router-dom";
+import CompanyModal from "../components/CompanyModal";
 import ProfileDropdown from "../components/ProfileDropdown";
 import { API_BASE_URL } from "../config/api";
 import {
@@ -17,6 +18,9 @@ import {
   HiOutlineEnvelope,
   HiOutlineSparkles,
   HiOutlineCheckCircle,
+  HiOutlineShieldCheck,
+  HiOutlinePencilSquare,
+  HiOutlineLockClosed,
 } from "react-icons/hi2";
 
 const indianStates = [
@@ -120,57 +124,160 @@ const InvoiceGenerator = () => {
   };
 
   const [savedCompanies, setSavedCompanies] = useState([]);
+  const [isCompanyModalOpen, setIsCompanyModalOpen] = useState(false);
+  const [editingCompany, setEditingCompany] = useState(null);
+
+  const getStateFromGSTIN = (gstin) => {
+    if (!gstin || gstin.length < 2) return null;
+    const code = gstin.substring(0, 2);
+    return indianStates.find((s) => s.startsWith(code)) || null;
+  };
+
+  const autofillCompanyDetails = (company, notify = false) => {
+    if (!company) return;
+    const detectedState = getStateFromGSTIN(company.companyGSTIN);
+
+    setFormData((prev) => ({
+      ...prev,
+      companyName: company.companyName || "",
+      companyAddress: company.companyAddress || "",
+      companyEmail: company.companyEmail || "",
+      companyMobile: company.companyMobile || "",
+      companyPAN: company.companyPAN || "",
+      companyGSTIN: company.companyGSTIN || "",
+      bankName: company.bankName || "",
+      bankAcNo: company.bankAcNo || "",
+      bankIFSC: company.bankIFSC || "",
+      supplierPlaceOfSupply: detectedState || prev.supplierPlaceOfSupply || "24-Gujarat",
+      buyerPlaceOfSupply: prev.buyerPlaceOfSupply || detectedState || "24-Gujarat",
+    }));
+
+    if (notify) {
+      toast.success(`Autofilled all necessary blanks for "${company.companyName}"!`);
+    }
+  };
 
   useEffect(() => {
     const storedUser = sessionStorage.getItem("user");
     const userObj = storedUser ? JSON.parse(storedUser) : null;
     const companyKey = userObj ? `savedCompanies_${userObj.id}` : "savedCompanies";
-    const loaded = localStorage.getItem(companyKey);
-    if (loaded) {
-      try {
-        const parsed = JSON.parse(loaded);
-        setSavedCompanies(parsed);
-        
-        const defaultCompany = location.state?.selectedCompany 
-          ? parsed.find(c => c.companyName.toLowerCase() === location.state.selectedCompany.toLowerCase()) 
-          : (parsed.length > 0 ? parsed[0] : null);
+    let loaded = [];
 
-        if (defaultCompany) {
-          setFormData(prev => ({
-            ...prev,
-            companyName: defaultCompany.companyName || "",
-            companyAddress: defaultCompany.companyAddress || "",
-            companyEmail: defaultCompany.companyEmail || "",
-            companyMobile: defaultCompany.companyMobile || "",
-            companyPAN: defaultCompany.companyPAN || "",
-            companyGSTIN: defaultCompany.companyGSTIN || "",
-            bankName: defaultCompany.bankName || "",
-            bankAcNo: defaultCompany.bankAcNo || "",
-            bankIFSC: defaultCompany.bankIFSC || ""
-          }));
-        }
+    const stored = localStorage.getItem(companyKey);
+    if (stored) {
+      try {
+        loaded = JSON.parse(stored) || [];
+        setSavedCompanies(loaded);
       } catch (e) {
-        console.error(e);
+        loaded = [];
       }
     }
+
+    // Auto-fill target company: either passed from state or the default 1st company
+    const defaultCompany = location.state?.selectedCompany 
+      ? loaded.find(c => c.companyName.toLowerCase() === location.state.selectedCompany.toLowerCase()) 
+      : (loaded.length > 0 ? loaded[0] : null);
+
+    if (defaultCompany) {
+      autofillCompanyDetails(defaultCompany, Boolean(location.state?.selectedCompany));
+    }
+
+    // Also fetch from API to ensure sync
+    const fetchCompaniesFromApi = async () => {
+      try {
+        const token = sessionStorage.getItem("token");
+        if (!token) return;
+        const res = await fetch(`${API_BASE_URL}/api/companies`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const apiData = await res.json();
+          if (Array.isArray(apiData) && apiData.length > 0) {
+            setSavedCompanies(apiData);
+            localStorage.setItem(companyKey, JSON.stringify(apiData));
+
+            // If form has no company name filled yet, auto-fill from 1st fetched company
+            setFormData((current) => {
+              if (!current.companyName && apiData.length > 0) {
+                const comp = apiData[0];
+                const state = getStateFromGSTIN(comp.companyGSTIN);
+                return {
+                  ...current,
+                  companyName: comp.companyName || "",
+                  companyAddress: comp.companyAddress || "",
+                  companyEmail: comp.companyEmail || "",
+                  companyMobile: comp.companyMobile || "",
+                  companyPAN: comp.companyPAN || "",
+                  companyGSTIN: comp.companyGSTIN || "",
+                  bankName: comp.bankName || "",
+                  bankAcNo: comp.bankAcNo || "",
+                  bankIFSC: comp.bankIFSC || "",
+                  supplierPlaceOfSupply: state || current.supplierPlaceOfSupply,
+                  buyerPlaceOfSupply: current.buyerPlaceOfSupply || state || "24-Gujarat",
+                };
+              }
+              return current;
+            });
+          }
+        }
+      } catch (e) {
+        console.warn("Backend companies fetch note:", e.message);
+      }
+    };
+    fetchCompaniesFromApi();
   }, [location.state]);
 
   const handleSelectCompany = (compName) => {
     const found = savedCompanies.find(c => c.companyName.toLowerCase() === compName.toLowerCase());
     if (found) {
-      setFormData(prev => ({
-        ...prev,
-        companyName: found.companyName || "",
-        companyAddress: found.companyAddress || "",
-        companyEmail: found.companyEmail || "",
-        companyMobile: found.companyMobile || "",
-        companyPAN: found.companyPAN || "",
-        companyGSTIN: found.companyGSTIN || "",
-        bankName: found.bankName || "",
-        bankAcNo: found.bankAcNo || "",
-        bankIFSC: found.bankIFSC || ""
-      }));
-      toast.info(`Loaded profile for "${found.companyName}"`);
+      autofillCompanyDetails(found, true);
+    }
+  };
+
+  const handleSaveCompanyFromGenerator = async (newCompanyData) => {
+    const storedUser = sessionStorage.getItem("user");
+    const userObj = storedUser ? JSON.parse(storedUser) : null;
+    const companyKey = userObj ? `savedCompanies_${userObj.id}` : "savedCompanies";
+
+    let updated;
+    if (editingCompany) {
+      const idx = savedCompanies.findIndex(c => c.companyName === editingCompany.companyName);
+      if (idx !== -1) {
+        updated = [...savedCompanies];
+        updated[idx] = newCompanyData;
+      } else {
+        updated = [newCompanyData, ...savedCompanies];
+      }
+    } else {
+      const existingIdx = savedCompanies.findIndex(
+        (c) => c.companyName.toLowerCase() === newCompanyData.companyName.trim().toLowerCase()
+      );
+      if (existingIdx >= 0) {
+        updated = [...savedCompanies];
+        updated[existingIdx] = newCompanyData;
+      } else {
+        updated = [newCompanyData, ...savedCompanies];
+      }
+    }
+
+    setSavedCompanies(updated);
+    localStorage.setItem(companyKey, JSON.stringify(updated));
+    autofillCompanyDetails(newCompanyData, true);
+
+    try {
+      const token = sessionStorage.getItem("token");
+      if (token) {
+        await fetch(`${API_BASE_URL}/api/companies`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify(newCompanyData)
+        });
+      }
+    } catch (e) {
+      console.warn("Backend save warning:", e);
     }
   };
 
@@ -416,9 +523,9 @@ const InvoiceGenerator = () => {
             </button>
           </div>
 
-          {/* Card 1: Select Business Profile */}
+          {/* Card 1: Select Business Profile & Autofill */}
           <div className="bg-white p-6 rounded-2xl shadow-xs border border-slate-200/80">
-            <div className="flex justify-between items-center mb-4 border-b border-slate-100 pb-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 border-b border-slate-100 pb-3">
               <div>
                 <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
                   <HiOutlineBuildingOffice2 className={`w-5 h-5 ${billType === 'purchase' ? 'text-emerald-600' : 'text-blue-600'}`} />
@@ -430,53 +537,115 @@ const InvoiceGenerator = () => {
                     : "Your registered company supplying the goods/fuel & issuing this Tax Invoice"}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => navigate('/dashboard')}
-                className="text-xs text-blue-600 hover:text-blue-800 font-bold transition cursor-pointer"
-              >
-                + Manage in Dashboard
-              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingCompany(null);
+                    setIsCompanyModalOpen(true);
+                  }}
+                  className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100/70 px-3 py-1.5 rounded-lg font-bold transition cursor-pointer border border-blue-200/60"
+                >
+                  <HiOutlinePlus className="w-3.5 h-3.5" /> Add New Profile
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigate('/dashboard')}
+                  className="text-xs text-slate-500 hover:text-slate-800 font-semibold px-2 py-1.5 transition cursor-pointer"
+                >
+                  Dashboard
+                </button>
+              </div>
             </div>
 
             {savedCompanies.length > 0 ? (
               <div className="space-y-3">
-                <select
-                  required
-                  onChange={(e) => handleSelectCompany(e.target.value)}
-                  className="w-full p-3 text-sm font-semibold rounded-xl border border-slate-300 bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 text-slate-900 outline-none transition cursor-pointer"
-                  value={formData.companyName || ""}
-                >
-                  <option value="" disabled>Choose your company profile...</option>
-                  {savedCompanies.map((c, idx) => (
-                    <option key={idx} value={c.companyName}>{c.companyName}</option>
-                  ))}
-                </select>
+                {/* Autofill Notification Banner */}
+                {formData.companyName && (
+                  <div className="p-2.5 px-3.5 bg-emerald-50 border border-emerald-200/80 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-emerald-800">
+                    <span className="flex items-center gap-2 font-medium">
+                      <HiOutlineShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>
+                        <strong>Protected Entity Active:</strong> All blanks (Address, GSTIN, PAN, Bank Details & State) auto-filled.
+                      </span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const cur = savedCompanies.find(c => c.companyName.toLowerCase() === formData.companyName.toLowerCase());
+                        setEditingCompany(cur || null);
+                        setIsCompanyModalOpen(true);
+                      }}
+                      className="inline-flex items-center gap-1 font-bold text-emerald-700 hover:text-emerald-900 underline cursor-pointer shrink-0 text-[11px]"
+                    >
+                      <HiOutlinePencilSquare className="w-3.5 h-3.5" />
+                      Edit Profile
+                    </button>
+                  </div>
+                )}
+
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                    Select Company to Autofill Blanks:
+                  </label>
+                  <select
+                    required
+                    onChange={(e) => handleSelectCompany(e.target.value)}
+                    className="w-full p-3 text-sm font-semibold rounded-xl border border-slate-300 bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 text-slate-900 outline-none transition cursor-pointer shadow-2xs"
+                    value={formData.companyName || ""}
+                  >
+                    <option value="" disabled>Choose your company profile...</option>
+                    {savedCompanies.map((c, idx) => (
+                      <option key={idx} value={c.companyName}>
+                        {c.companyName} {c.companyGSTIN ? `(GST: ${c.companyGSTIN})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
                 {formData.companyName && (
-                  <div className="p-4 bg-slate-50/80 rounded-xl border border-slate-200/80 text-xs text-slate-600 space-y-1.5">
-                    <p className="font-bold text-slate-900 text-sm">{formData.companyName}</p>
-                    <p>{formData.companyAddress || "No address entered"}</p>
-                    <div className="flex flex-wrap gap-x-4 gap-y-1 pt-1 text-[11px] text-slate-500 font-medium">
-                      <span>GSTIN: <span className="font-mono text-slate-700">{formData.companyGSTIN || "N/A"}</span></span>
-                      <span>PAN: <span className="font-mono text-slate-700">{formData.companyPAN || "N/A"}</span></span>
-                      <span>Bank: <span className="text-slate-700">{formData.bankName || "N/A"} (A/C: {formData.bankAcNo || 'N/A'}, IFSC: {formData.bankIFSC || 'N/A'})</span></span>
+                  <div className="p-4 bg-slate-50/90 rounded-xl border border-slate-200/80 text-xs text-slate-600 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
+                        <HiOutlineBuildingOffice2 className="w-4 h-4 text-blue-600" />
+                        {formData.companyName}
+                      </p>
+                      <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100/70 px-2 py-0.5 rounded-full border border-emerald-200/60">
+                        Autofill Ready
+                      </span>
+                    </div>
+                    <p className="text-slate-600">{formData.companyAddress || "No address entered"}</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 text-[11px] text-slate-600 font-medium border-t border-slate-200/60">
+                      <div>GSTIN: <span className="font-mono font-bold text-slate-800">{formData.companyGSTIN || "N/A"}</span></div>
+                      <div>PAN: <span className="font-mono font-bold text-slate-800">{formData.companyPAN || "N/A"}</span></div>
+                      <div>Mobile: <span className="text-slate-800 font-semibold">{formData.companyMobile || "N/A"}</span></div>
+                      <div className="sm:col-span-3">Bank Remittance: <span className="text-slate-800 font-semibold">{formData.bankName || "N/A"} (A/C: {formData.bankAcNo || 'N/A'}, IFSC: {formData.bankIFSC || 'N/A'})</span></div>
                     </div>
                   </div>
                 )}
               </div>
             ) : (
-              <div className="bg-amber-50 border border-amber-200/80 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="bg-gradient-to-br from-amber-50 to-orange-50/40 border border-amber-200/80 rounded-xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                  <p className="text-amber-900 font-bold text-sm">No business profiles found</p>
-                  <p className="text-amber-700 text-xs mt-0.5">Please configure your company name and GSTIN in Dashboard.</p>
+                  <p className="text-amber-900 font-bold text-sm flex items-center gap-1.5">
+                    <HiOutlineLockClosed className="w-4 h-4 text-amber-600" />
+                    No Saved Business Profile Yet
+                  </p>
+                  <p className="text-amber-700 text-xs mt-1">
+                    Add your company once—all necessary information will automatically fill into every bill and invoice anytime you generate one.
+                  </p>
                 </div>
                 <button
                   type="button"
-                  onClick={() => navigate('/dashboard')}
-                  className="px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 transition cursor-pointer whitespace-nowrap"
+                  onClick={() => {
+                    setEditingCompany(null);
+                    setIsCompanyModalOpen(true);
+                  }}
+                  className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition cursor-pointer whitespace-nowrap inline-flex items-center gap-1.5"
                 >
-                  Add Company Profile
+                  <HiOutlinePlus className="w-4 h-4" />
+                  Add Business Profile Now
                 </button>
               </div>
             )}
@@ -1071,6 +1240,16 @@ const InvoiceGenerator = () => {
           </div>
         </div>
 
+        {/* Company Modal */}
+        <CompanyModal
+          isOpen={isCompanyModalOpen}
+          onClose={() => {
+            setIsCompanyModalOpen(false);
+            setEditingCompany(null);
+          }}
+          onSave={handleSaveCompanyFromGenerator}
+          initialData={editingCompany}
+        />
       </main>
     </div>
   );

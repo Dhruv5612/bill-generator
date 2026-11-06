@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import CompanyModal from "../components/CompanyModal";
+import CompanyDeleteModal from "../components/CompanyDeleteModal";
 import ProfileDropdown from "../components/ProfileDropdown";
 import { API_BASE_URL } from "../config/api";
 import { toast } from "react-toastify";
@@ -19,6 +20,9 @@ import {
   HiOutlineDocumentDuplicate,
   HiOutlineTruck,
   HiOutlineBanknotes,
+  HiOutlineShieldCheck,
+  HiOutlineSparkles,
+  HiOutlineLockClosed,
 } from "react-icons/hi2";
 
 const Dashboard = () => {
@@ -32,6 +36,8 @@ const Dashboard = () => {
   const [isCompanyModalOpen, setIsCompanyModalOpen] = useState(false);
   const [editingCompany, setEditingCompany] = useState(null);
   const [expandedCompanyIndex, setExpandedCompanyIndex] = useState(null);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [companyToDelete, setCompanyToDelete] = useState(null);
 
   // Search & Filter State
   const [searchQuery, setSearchQuery] = useState("");
@@ -49,7 +55,7 @@ const Dashboard = () => {
       setUser(userObj);
     }
 
-    // Load Companies
+    // Load Companies from localStorage immediately for fast load
     const companyKey = userObj ? `savedCompanies_${userObj.id}` : "savedCompanies";
     const storedCompanies = localStorage.getItem(companyKey);
     if (storedCompanies) {
@@ -59,6 +65,27 @@ const Dashboard = () => {
         setCompanies([]);
       }
     }
+
+    // Also fetch saved companies from backend API to sync
+    const fetchCompanies = async () => {
+      try {
+        const token = sessionStorage.getItem("token");
+        if (!token) return;
+        const res = await fetch(`${API_BASE_URL}/api/companies`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data) && data.length > 0) {
+            setCompanies(data);
+            localStorage.setItem(companyKey, JSON.stringify(data));
+          }
+        }
+      } catch (e) {
+        console.warn("Backend companies fetch note:", e.message);
+      }
+    };
+    fetchCompanies();
 
     const fetchInvoices = async () => {
       try {
@@ -125,7 +152,7 @@ const Dashboard = () => {
     }
   };
 
-  const handleSaveCompany = (companyData) => {
+  const handleSaveCompany = async (companyData) => {
     let updated;
     if (editingCompany) {
       const index = companies.findIndex((c) => c.companyName === editingCompany.companyName);
@@ -150,7 +177,24 @@ const Dashboard = () => {
     setCompanies(updated);
     const companyKey = user ? `savedCompanies_${user.id}` : "savedCompanies";
     localStorage.setItem(companyKey, JSON.stringify(updated));
-    toast.success(`Saved profile for "${companyData.companyName}"!`);
+    toast.success(`Saved and protected profile for "${companyData.companyName}"! Ready for autofill.`);
+
+    // Also persist to backend
+    try {
+      const token = sessionStorage.getItem("token");
+      if (token) {
+        await fetch(`${API_BASE_URL}/api/companies`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify(companyData)
+        });
+      }
+    } catch (e) {
+      console.warn("Backend save warning:", e);
+    }
   };
 
   const handleLogout = () => {
@@ -170,13 +214,34 @@ const Dashboard = () => {
     setIsCompanyModalOpen(true);
   };
 
-  const handleDeleteCompany = (companyName) => {
-    if (!window.confirm(`Are you sure you want to delete "${companyName}"?`)) return;
+  const openDeleteCompanyModal = (company) => {
+    setCompanyToDelete(company);
+    setIsDeleteModalOpen(true);
+  };
+
+  const handleConfirmDelete = async (companyName) => {
+    // Permission verified via CompanyDeleteModal
+    try {
+      const token = sessionStorage.getItem("token");
+      if (token) {
+        await fetch(`${API_BASE_URL}/api/companies`, {
+          method: "DELETE",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({ companyName, permissionGranted: true })
+        });
+      }
+    } catch (e) {
+      console.warn("Backend delete warning:", e);
+    }
+
     const updated = companies.filter((c) => c.companyName !== companyName);
     setCompanies(updated);
     const companyKey = user ? `savedCompanies_${user.id}` : "savedCompanies";
     localStorage.setItem(companyKey, JSON.stringify(updated));
-    toast.success("Company profile deleted.");
+    toast.success(`Protected profile "${companyName}" removed with authorized permission.`);
   };
 
   // State for Type Filter ("all", "sales", "purchase")
@@ -408,12 +473,16 @@ const Dashboard = () => {
                       className="p-5 flex justify-between items-start cursor-pointer select-none"
                       onClick={() => toggleCompanyExpand(index)}
                     >
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xs uppercase">
+                      <div className="space-y-1.5 flex-1 pr-3">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xs uppercase shadow-xs">
                             {company.companyName.charAt(0)}
                           </div>
                           <h3 className="text-base font-bold text-slate-900">{company.companyName}</h3>
+                          <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200/60 inline-flex items-center gap-1">
+                            <HiOutlineShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                            Protected Entity
+                          </span>
                         </div>
                         <p className="text-xs text-slate-500 line-clamp-1">{company.companyAddress || "No address provided"}</p>
                         
@@ -431,11 +500,22 @@ const Dashboard = () => {
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold bg-slate-100 text-slate-600 px-2.5 py-1 rounded-full">
-                          {companyInvoices.length} {companyInvoices.length === 1 ? "bill" : "bills"}
-                        </span>
-                        <div className="text-slate-400 p-1">
+                      <div className="flex flex-col items-end gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate('/invoice-generator', { state: { selectedCompany: company.companyName } });
+                          }}
+                          className="inline-flex items-center gap-1.5 text-xs font-bold text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 px-3.5 py-1.5 rounded-xl shadow-xs transition cursor-pointer"
+                          title="Generate bill using this company with all blanks autofilled"
+                        >
+                          <HiOutlineSparkles className="w-3.5 h-3.5" /> Generate Bill
+                        </button>
+                        <div className="flex items-center gap-1.5 text-slate-400">
+                          <span className="text-[11px] font-semibold bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
+                            {companyInvoices.length} bills
+                          </span>
                           {isExpanded ? <HiOutlineChevronUp className="w-4 h-4" /> : <HiOutlineChevronDown className="w-4 h-4" />}
                         </div>
                       </div>
@@ -465,9 +545,9 @@ const Dashboard = () => {
                               e.stopPropagation();
                               navigate('/invoice-generator', { state: { selectedCompany: company.companyName } });
                             }}
-                            className="inline-flex items-center gap-1 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 px-3 py-1.5 rounded-lg shadow-xs transition cursor-pointer"
+                            className="inline-flex items-center gap-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 px-3 py-1.5 rounded-lg shadow-xs transition cursor-pointer"
                           >
-                            <HiOutlinePlus className="w-3.5 h-3.5" /> Generate Bill
+                            <HiOutlineSparkles className="w-3.5 h-3.5" /> Autofill & Generate Bill
                           </button>
 
                           <div className="flex items-center gap-2">
@@ -483,9 +563,10 @@ const Dashboard = () => {
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                handleDeleteCompany(company.companyName);
+                                openDeleteCompanyModal(company);
                               }}
                               className="text-xs font-semibold text-red-600 hover:text-red-700 px-2.5 py-1.5 rounded-md hover:bg-red-50 border border-red-200 transition cursor-pointer flex items-center gap-1"
+                              title="Delete requires explicit permission"
                             >
                               <HiOutlineTrash className="w-3.5 h-3.5" /> Delete
                             </button>
@@ -685,12 +766,22 @@ const Dashboard = () => {
           )}
         </div>
 
-        {/* Modal */}
+        {/* Modals */}
         <CompanyModal
           isOpen={isCompanyModalOpen}
           onClose={() => setIsCompanyModalOpen(false)}
           onSave={handleSaveCompany}
           initialData={editingCompany}
+        />
+
+        <CompanyDeleteModal
+          isOpen={isDeleteModalOpen}
+          onClose={() => {
+            setIsDeleteModalOpen(false);
+            setCompanyToDelete(null);
+          }}
+          onConfirm={handleConfirmDelete}
+          company={companyToDelete}
         />
       </main>
     </div>

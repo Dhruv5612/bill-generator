@@ -10,6 +10,7 @@ const PORT = process.env.PORT || 5000;
 
 const billGenerateRoute = require("./routes/billgenerator.route");
 const authRoute = require("./routes/auth.route");
+const companyRoute = require("./routes/company.route");
 
 // Middleware
 app.use(cors({ origin: true, credentials: true }));
@@ -64,6 +65,7 @@ app.get(["/api", "/"], (req, res) => {
 });
 
 app.use(["/api/auth", "/auth"], authRoute);
+app.use(["/api/companies", "/companies"], companyRoute);
 app.use(["/api", "/"], billGenerateRoute);
 
 // Global error handler
