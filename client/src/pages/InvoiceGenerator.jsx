@@ -21,6 +21,7 @@ import {
   HiOutlineShieldCheck,
   HiOutlinePencilSquare,
   HiOutlineLockClosed,
+  HiOutlineBookmark,
 } from "react-icons/hi2";
 
 const indianStates = [
@@ -124,6 +125,8 @@ const InvoiceGenerator = () => {
   };
 
   const [savedCompanies, setSavedCompanies] = useState([]);
+  const [companyMode, setCompanyMode] = useState("saved"); // "saved" or "manual"
+  const [showCompanyFields, setShowCompanyFields] = useState(false);
   const [isCompanyModalOpen, setIsCompanyModalOpen] = useState(false);
   const [editingCompany, setEditingCompany] = useState(null);
 
@@ -228,10 +231,68 @@ const InvoiceGenerator = () => {
   }, [location.state]);
 
   const handleSelectCompany = (compName) => {
+    if (compName === "__manual__" || !compName) {
+      setCompanyMode("manual");
+      setFormData((prev) => ({
+        ...prev,
+        companyName: "",
+        companyAddress: "",
+        companyEmail: "",
+        companyMobile: "",
+        companyPAN: "",
+        companyGSTIN: "",
+        bankName: "",
+        bankAcNo: "",
+        bankIFSC: "",
+      }));
+      toast.info("Manual Entry Mode: Fill in your company & bank blanks below.");
+      return;
+    }
+
+    setCompanyMode("saved");
     const found = savedCompanies.find(c => c.companyName.toLowerCase() === compName.toLowerCase());
     if (found) {
       autofillCompanyDetails(found, true);
     }
+  };
+
+  const handleClearCompanyDetails = () => {
+    setFormData((prev) => ({
+      ...prev,
+      companyName: "",
+      companyAddress: "",
+      companyEmail: "",
+      companyMobile: "",
+      companyPAN: "",
+      companyGSTIN: "",
+      bankName: "",
+      bankAcNo: "",
+      bankIFSC: "",
+    }));
+    toast.info("Company blanks cleared for fresh manual entry.");
+  };
+
+  const handleSaveCurrentAsCompany = async () => {
+    if (!formData.companyName || !formData.companyName.trim()) {
+      toast.warning("Please enter a Company / Business Name first.");
+      return;
+    }
+
+    const newProfile = {
+      companyName: formData.companyName.trim(),
+      companyAddress: formData.companyAddress || "",
+      companyEmail: formData.companyEmail || "",
+      companyMobile: formData.companyMobile || "",
+      companyPAN: formData.companyPAN || "",
+      companyGSTIN: formData.companyGSTIN || "",
+      bankName: formData.bankName || "",
+      bankAcNo: formData.bankAcNo || "",
+      bankIFSC: formData.bankIFSC || "",
+    };
+
+    await handleSaveCompanyFromGenerator(newProfile);
+    setCompanyMode("saved");
+    toast.success(`"${newProfile.companyName}" successfully saved to your permanent business profiles!`);
   };
 
   const handleSaveCompanyFromGenerator = async (newCompanyData) => {
@@ -294,11 +355,27 @@ const InvoiceGenerator = () => {
       name === "supplierPAN" ||
       name === "companyGSTIN" ||
       name === "companyPAN" ||
+      name === "bankIFSC" ||
       name === "vehicleNo"
     ) {
-      setFormData(prev => ({ ...prev, [name]: value.toUpperCase() }));
+      const upperVal = value.toUpperCase();
+      if (name === "companyGSTIN") {
+        const detected = getStateFromGSTIN(upperVal);
+        let panPart = "";
+        if (upperVal.length >= 12) {
+          panPart = upperVal.substring(2, 12);
+        }
+        setFormData((prev) => ({
+          ...prev,
+          companyGSTIN: upperVal,
+          ...(detected ? { supplierPlaceOfSupply: detected } : {}),
+          ...(panPart && !prev.companyPAN ? { companyPAN: panPart } : {}),
+        }));
+        return;
+      }
+      setFormData((prev) => ({ ...prev, [name]: upperVal }));
     } else {
-      setFormData(prev => ({ ...prev, [name]: value }));
+      setFormData((prev) => ({ ...prev, [name]: value }));
     }
   };
 
@@ -353,8 +430,8 @@ const InvoiceGenerator = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!formData.companyName) {
-      toast.warning("Please select or add a company from the Dashboard before generating an invoice.");
+    if (!formData.companyName || !formData.companyName.trim()) {
+      toast.warning("Please enter your Company / Business Name or choose a saved company profile.");
       return;
     }
 
@@ -523,22 +600,62 @@ const InvoiceGenerator = () => {
             </button>
           </div>
 
-          {/* Card 1: Select Business Profile & Autofill */}
+          {/* Card 1: Select Business Profile & Autofill OR Manual Entry */}
           <div className="bg-white p-6 rounded-2xl shadow-xs border border-slate-200/80">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 border-b border-slate-100 pb-3">
               <div>
                 <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
                   <HiOutlineBuildingOffice2 className={`w-5 h-5 ${billType === 'purchase' ? 'text-emerald-600' : 'text-blue-600'}`} />
-                  {billType === "purchase" ? "Purchaser Entity (Your Business Profile)" : "Billed By (Select Business Entity)"}
+                  {billType === "purchase" ? "Purchaser Entity (Your Business Profile)" : "Billed By (Company / Business Entity)"}
                 </h3>
                 <p className="text-[11px] text-slate-500 mt-0.5">
                   {billType === "purchase"
-                    ? "Your registered company receiving the goods/fuel (Consignee / Purchaser)"
-                    : "Your registered company supplying the goods/fuel & issuing this Tax Invoice"}
+                    ? "Your registered business receiving the goods/fuel (Consignee / Purchaser)"
+                    : "Select a saved company to auto-fill blanks or choose manual entry to fill details yourself."}
                 </p>
               </div>
 
-              <div className="flex items-center gap-2">
+              {/* Mode Selector and Quick Actions */}
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="inline-flex rounded-xl bg-slate-100 p-1 border border-slate-200/80">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCompanyMode("saved");
+                      if (savedCompanies.length > 0) {
+                        const cur = savedCompanies.find(c => c.companyName.toLowerCase() === formData.companyName.toLowerCase()) || savedCompanies[0];
+                        autofillCompanyDetails(cur, true);
+                      } else {
+                        toast.info("No saved companies yet. You can enter details manually or add a new profile.");
+                      }
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                      companyMode === "saved"
+                        ? "bg-white text-blue-700 shadow-xs"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    <HiOutlineBuildingOffice2 className="w-3.5 h-3.5" />
+                    <span>Saved Company {savedCompanies.length > 0 ? `(${savedCompanies.length})` : ""}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCompanyMode("manual");
+                      toast.info("Manual Entry Mode active: You can now fill in all company & bank details below.");
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                      companyMode === "manual"
+                        ? "bg-white text-blue-700 shadow-xs"
+                        : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    <HiOutlinePencilSquare className="w-3.5 h-3.5" />
+                    <span>Manual Entry (No Company)</span>
+                  </button>
+                </div>
+
                 <button
                   type="button"
                   onClick={() => {
@@ -546,9 +663,11 @@ const InvoiceGenerator = () => {
                     setIsCompanyModalOpen(true);
                   }}
                   className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100/70 px-3 py-1.5 rounded-lg font-bold transition cursor-pointer border border-blue-200/60"
+                  title="Add a new permanent business profile"
                 >
-                  <HiOutlinePlus className="w-3.5 h-3.5" /> Add New Profile
+                  <HiOutlinePlus className="w-3.5 h-3.5" /> New Profile
                 </button>
+
                 <button
                   type="button"
                   onClick={() => navigate('/dashboard')}
@@ -559,17 +678,58 @@ const InvoiceGenerator = () => {
               </div>
             </div>
 
-            {savedCompanies.length > 0 ? (
+            {/* Dropdown Company Selector */}
+            <div className="space-y-1.5 mb-4">
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center justify-between">
+                <span>Select Company Option:</span>
+                <span className="text-[11px] font-normal normal-case text-slate-500">
+                  {companyMode === "manual"
+                    ? "✍️ No company selected — filling details manually below"
+                    : "⚡ Select saved company to autofill all blanks"}
+                </span>
+              </label>
+              <select
+                value={companyMode === "manual" ? "__manual__" : (formData.companyName || "")}
+                onChange={(e) => handleSelectCompany(e.target.value)}
+                className="w-full p-3 text-sm font-semibold rounded-xl border border-slate-300 bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 text-slate-900 outline-none transition cursor-pointer shadow-2xs"
+              >
+                <optgroup label="✍️ Manual Option">
+                  <option value="__manual__">
+                    📝 No Company / Enter All Details Manually (Custom)
+                  </option>
+                </optgroup>
+                {savedCompanies.length > 0 && (
+                  <optgroup label="🏢 Saved Business Profiles">
+                    {savedCompanies.map((c, idx) => (
+                      <option key={idx} value={c.companyName}>
+                        {c.companyName} {c.companyGSTIN ? `(GST: ${c.companyGSTIN})` : ""}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+              </select>
+            </div>
+
+            {/* Saved Company Active Preview Card */}
+            {companyMode === "saved" && formData.companyName && (
               <div className="space-y-3">
                 {/* Autofill Notification Banner */}
-                {formData.companyName && (
-                  <div className="p-2.5 px-3.5 bg-emerald-50 border border-emerald-200/80 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-emerald-800">
-                    <span className="flex items-center gap-2 font-medium">
-                      <HiOutlineShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-                      <span>
-                        <strong>Protected Entity Active:</strong> All blanks (Address, GSTIN, PAN, Bank Details & State) auto-filled.
-                      </span>
+                <div className="p-2.5 px-3.5 bg-emerald-50 border border-emerald-200/80 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-emerald-800">
+                  <span className="flex items-center gap-2 font-medium">
+                    <HiOutlineShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>
+                      <strong>Protected Entity Active:</strong> All blanks (Address, GSTIN, PAN, Bank Details & State) auto-filled from <strong>{formData.companyName}</strong>.
                     </span>
+                  </span>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setShowCompanyFields(!showCompanyFields)}
+                      className="inline-flex items-center gap-1 font-bold text-blue-700 hover:text-blue-900 underline cursor-pointer text-[11px]"
+                    >
+                      <HiOutlinePencilSquare className="w-3.5 h-3.5" />
+                      {showCompanyFields ? "Hide Editable Inputs" : "View / Edit Blanks"}
+                    </button>
                     <button
                       type="button"
                       onClick={() => {
@@ -577,76 +737,248 @@ const InvoiceGenerator = () => {
                         setEditingCompany(cur || null);
                         setIsCompanyModalOpen(true);
                       }}
-                      className="inline-flex items-center gap-1 font-bold text-emerald-700 hover:text-emerald-900 underline cursor-pointer shrink-0 text-[11px]"
+                      className="inline-flex items-center gap-1 font-bold text-emerald-700 hover:text-emerald-900 underline cursor-pointer text-[11px]"
                     >
-                      <HiOutlinePencilSquare className="w-3.5 h-3.5" />
                       Edit Profile
                     </button>
                   </div>
-                )}
-
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                    Select Company to Autofill Blanks:
-                  </label>
-                  <select
-                    required
-                    onChange={(e) => handleSelectCompany(e.target.value)}
-                    className="w-full p-3 text-sm font-semibold rounded-xl border border-slate-300 bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 text-slate-900 outline-none transition cursor-pointer shadow-2xs"
-                    value={formData.companyName || ""}
-                  >
-                    <option value="" disabled>Choose your company profile...</option>
-                    {savedCompanies.map((c, idx) => (
-                      <option key={idx} value={c.companyName}>
-                        {c.companyName} {c.companyGSTIN ? `(GST: ${c.companyGSTIN})` : ""}
-                      </option>
-                    ))}
-                  </select>
                 </div>
 
-                {formData.companyName && (
-                  <div className="p-4 bg-slate-50/90 rounded-xl border border-slate-200/80 text-xs text-slate-600 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <p className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
-                        <HiOutlineBuildingOffice2 className="w-4 h-4 text-blue-600" />
-                        {formData.companyName}
-                      </p>
-                      <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100/70 px-2 py-0.5 rounded-full border border-emerald-200/60">
-                        Autofill Ready
+                {/* Company Summary Card */}
+                <div className="p-4 bg-slate-50/90 rounded-xl border border-slate-200/80 text-xs text-slate-600 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
+                      <HiOutlineBuildingOffice2 className="w-4 h-4 text-blue-600" />
+                      {formData.companyName}
+                    </p>
+                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100/70 px-2 py-0.5 rounded-full border border-emerald-200/60">
+                      Autofill Active
+                    </span>
+                  </div>
+                  <p className="text-slate-600">{formData.companyAddress || "No address entered"}</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 text-[11px] text-slate-600 font-medium border-t border-slate-200/60">
+                    <div>GSTIN: <span className="font-mono font-bold text-slate-800">{formData.companyGSTIN || "N/A"}</span></div>
+                    <div>PAN: <span className="font-mono font-bold text-slate-800">{formData.companyPAN || "N/A"}</span></div>
+                    <div>Mobile: <span className="text-slate-800 font-semibold">{formData.companyMobile || "N/A"}</span></div>
+                    <div className="sm:col-span-3">Bank Remittance: <span className="text-slate-800 font-semibold">{formData.bankName || "N/A"} (A/C: {formData.bankAcNo || 'N/A'}, IFSC: {formData.bankIFSC || 'N/A'})</span></div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Editable Fields: Shown when Manual Entry Mode is selected, OR when user clicks "View / Edit Blanks", OR if no company is selected */}
+            {(companyMode === "manual" || showCompanyFields || (!formData.companyName && companyMode === "saved")) && (
+              <div className={`space-y-4 ${companyMode === "saved" ? "mt-4 pt-4 border-t border-slate-200/80" : ""}`}>
+                {companyMode === "manual" && (
+                  <div className="p-3 bg-blue-50/80 border border-blue-200/80 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-blue-800">
+                    <span className="flex items-center gap-2 font-medium">
+                      <HiOutlinePencilSquare className="w-4 h-4 text-blue-600 shrink-0" />
+                      <span>
+                        <strong>Manual Entry Mode:</strong> No company selected. Fill all company, tax, and bank details manually below.
                       </span>
-                    </div>
-                    <p className="text-slate-600">{formData.companyAddress || "No address entered"}</p>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 text-[11px] text-slate-600 font-medium border-t border-slate-200/60">
-                      <div>GSTIN: <span className="font-mono font-bold text-slate-800">{formData.companyGSTIN || "N/A"}</span></div>
-                      <div>PAN: <span className="font-mono font-bold text-slate-800">{formData.companyPAN || "N/A"}</span></div>
-                      <div>Mobile: <span className="text-slate-800 font-semibold">{formData.companyMobile || "N/A"}</span></div>
-                      <div className="sm:col-span-3">Bank Remittance: <span className="text-slate-800 font-semibold">{formData.bankName || "N/A"} (A/C: {formData.bankAcNo || 'N/A'}, IFSC: {formData.bankIFSC || 'N/A'})</span></div>
-                    </div>
+                    </span>
+                    {formData.companyName && (
+                      <button
+                        type="button"
+                        onClick={handleSaveCurrentAsCompany}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition text-[11px] cursor-pointer whitespace-nowrap shadow-2xs"
+                      >
+                        <HiOutlineBookmark className="w-3.5 h-3.5" />
+                        Save to My Profiles
+                      </button>
+                    )}
                   </div>
                 )}
-              </div>
-            ) : (
-              <div className="bg-gradient-to-br from-amber-50 to-orange-50/40 border border-amber-200/80 rounded-xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div>
-                  <p className="text-amber-900 font-bold text-sm flex items-center gap-1.5">
-                    <HiOutlineLockClosed className="w-4 h-4 text-amber-600" />
-                    No Saved Business Profile Yet
-                  </p>
-                  <p className="text-amber-700 text-xs mt-1">
-                    Add your company once—all necessary information will automatically fill into every bill and invoice anytime you generate one.
+
+                {/* Grid of All Company & Bank Blanks */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {/* Company Name */}
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center justify-between">
+                      <span>Company / Business Name *</span>
+                      <span className="text-[10px] text-slate-400 font-normal">Header on invoice</span>
+                    </label>
+                    <input
+                      type="text"
+                      name="companyName"
+                      value={formData.companyName}
+                      onChange={handleFormChange}
+                      placeholder="e.g. Shree Ganesh Petroleum & Logistics"
+                      required
+                      className="w-full p-2.5 text-sm font-semibold rounded-xl border border-slate-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 text-slate-900 outline-none"
+                    />
+                  </div>
+
+                  {/* State / Place of Supply */}
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      State / Place of Supply
+                    </label>
+                    <select
+                      name="supplierPlaceOfSupply"
+                      value={formData.supplierPlaceOfSupply}
+                      onChange={handleFormChange}
+                      className="w-full p-2.5 text-sm rounded-xl border border-slate-300 bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 text-slate-900 outline-none cursor-pointer"
+                    >
+                      {indianStates.map((st, i) => (
+                        <option key={i} value={st}>{st}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Full Address */}
+                  <div className="sm:col-span-2 lg:col-span-3">
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Full Business Address
+                    </label>
+                    <input
+                      type="text"
+                      name="companyAddress"
+                      value={formData.companyAddress}
+                      onChange={handleFormChange}
+                      placeholder="e.g. Plot No 42, GIDC Industrial Estate, Highway Road, Surat, Gujarat - 395007"
+                      className="w-full p-2.5 text-sm rounded-xl border border-slate-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 text-slate-900 outline-none"
+                    />
+                  </div>
+
+                  {/* GSTIN */}
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center justify-between">
+                      <span>GSTIN (15 Digits)</span>
+                      <span className="text-[10px] text-slate-400 font-normal">Auto-detects State & PAN</span>
+                    </label>
+                    <input
+                      type="text"
+                      name="companyGSTIN"
+                      value={formData.companyGSTIN}
+                      onChange={handleFormChange}
+                      maxLength={15}
+                      placeholder="24AAAAA0000A1Z5"
+                      className="w-full p-2.5 text-sm font-mono uppercase rounded-xl border border-slate-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 text-slate-900 outline-none"
+                    />
+                  </div>
+
+                  {/* PAN */}
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      PAN (10 Digits)
+                    </label>
+                    <input
+                      type="text"
+                      name="companyPAN"
+                      value={formData.companyPAN}
+                      onChange={handleFormChange}
+                      maxLength={10}
+                      placeholder="AAAAA0000A"
+                      className="w-full p-2.5 text-sm font-mono uppercase rounded-xl border border-slate-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 text-slate-900 outline-none"
+                    />
+                  </div>
+
+                  {/* Mobile */}
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Mobile / Phone Number
+                    </label>
+                    <input
+                      type="text"
+                      name="companyMobile"
+                      value={formData.companyMobile}
+                      onChange={handleFormChange}
+                      placeholder="+91 98765 43210"
+                      className="w-full p-2.5 text-sm rounded-xl border border-slate-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 text-slate-900 outline-none"
+                    />
+                  </div>
+
+                  {/* Email */}
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Email Address
+                    </label>
+                    <input
+                      type="email"
+                      name="companyEmail"
+                      value={formData.companyEmail}
+                      onChange={handleFormChange}
+                      placeholder="billing@yourcompany.com"
+                      className="w-full p-2.5 text-sm rounded-xl border border-slate-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 text-slate-900 outline-none"
+                    />
+                  </div>
+
+                  {/* Bank Name */}
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Bank Name (for Remittance)
+                    </label>
+                    <input
+                      type="text"
+                      name="bankName"
+                      value={formData.bankName}
+                      onChange={handleFormChange}
+                      placeholder="e.g. State Bank of India"
+                      className="w-full p-2.5 text-sm rounded-xl border border-slate-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 text-slate-900 outline-none"
+                    />
+                  </div>
+
+                  {/* Bank Account No */}
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Bank Account Number
+                    </label>
+                    <input
+                      type="text"
+                      name="bankAcNo"
+                      value={formData.bankAcNo}
+                      onChange={handleFormChange}
+                      placeholder="e.g. 30123456789"
+                      className="w-full p-2.5 text-sm font-mono rounded-xl border border-slate-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 text-slate-900 outline-none"
+                    />
+                  </div>
+
+                  {/* Bank IFSC */}
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Bank IFSC Code
+                    </label>
+                    <input
+                      type="text"
+                      name="bankIFSC"
+                      value={formData.bankIFSC}
+                      onChange={handleFormChange}
+                      maxLength={11}
+                      placeholder="SBIN0001234"
+                      className="w-full p-2.5 text-sm font-mono uppercase rounded-xl border border-slate-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 text-slate-900 outline-none"
+                    />
+                  </div>
+                </div>
+
+                {/* Actions Row */}
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-100">
+                  <div className="flex items-center gap-2">
+                    {companyMode === "manual" && (
+                      <button
+                        type="button"
+                        onClick={handleSaveCurrentAsCompany}
+                        disabled={!formData.companyName.trim()}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white text-xs font-bold rounded-lg shadow-2xs transition cursor-pointer disabled:cursor-not-allowed"
+                      >
+                        <HiOutlineBookmark className="w-3.5 h-3.5" />
+                        Save this Company to My Profile
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleClearCompanyDetails}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200/80 text-xs font-semibold rounded-lg transition cursor-pointer"
+                    >
+                      <HiOutlineArrowPath className="w-3.5 h-3.5" />
+                      Clear Company Blanks
+                    </button>
+                  </div>
+
+                  <p className="text-[11px] text-slate-500">
+                    💡 All blanks above will print directly in your generated Tax Invoice or Purchase Bill.
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEditingCompany(null);
-                    setIsCompanyModalOpen(true);
-                  }}
-                  className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition cursor-pointer whitespace-nowrap inline-flex items-center gap-1.5"
-                >
-                  <HiOutlinePlus className="w-4 h-4" />
-                  Add Business Profile Now
-                </button>
               </div>
             )}
           </div>

@@ -121,3 +121,4 @@ const CompanyDeleteModal = ({ isOpen, onClose, onConfirm, company }) => {
 };
 
 export default CompanyDeleteModal;
+
