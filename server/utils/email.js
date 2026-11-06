@@ -1,12 +1,10 @@
 const nodemailer = require("nodemailer");
 
-const sendEmail = async ({ to, subject, text }) => {
+const sendEmail = async ({ to, subject, text, html }) => {
   try {
-    // If credentials are provided in .env, use them. 
-    // Otherwise, log the email to console for development.
     if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
       const transporter = nodemailer.createTransport({
-        service: "gmail", // Assuming gmail for now, can be configured in env
+        service: "gmail",
         auth: {
           user: process.env.EMAIL_USER,
           pass: process.env.EMAIL_PASS,
@@ -14,14 +12,15 @@ const sendEmail = async ({ to, subject, text }) => {
       });
 
       const mailOptions = {
-        from: process.env.EMAIL_USER,
+        from: `"BillCraft Support" <${process.env.EMAIL_USER}>`,
         to,
         subject,
         text,
+        html: html || text,
       };
 
       await transporter.sendMail(mailOptions);
-      console.log(`Email sent to ${to}`);
+      console.log(`Email successfully sent to ${to}`);
     } else {
       console.log("--------------------------------------------------");
       console.log("EMAIL MOCK (No EMAIL_USER/EMAIL_PASS in .env)");
@@ -31,8 +30,7 @@ const sendEmail = async ({ to, subject, text }) => {
       console.log("--------------------------------------------------");
     }
   } catch (error) {
-    console.error("Error sending email:", error);
-    throw new Error("Could not send email.");
+    console.error("Error sending email via nodemailer:", error.message);
   }
 };
 

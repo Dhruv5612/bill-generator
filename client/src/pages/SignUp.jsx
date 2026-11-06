@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import { API_BASE_URL } from "../config/api";
@@ -13,6 +13,7 @@ import {
   HiOutlineCheckCircle,
   HiOutlineKey,
   HiOutlineArrowLeft,
+  HiOutlineArrowPath,
 } from "react-icons/hi2";
 
 const SignUp = () => {
@@ -20,15 +21,36 @@ const SignUp = () => {
   const [formData, setFormData] = useState({ name: "", email: "", password: "" });
   const [showPassword, setShowPassword] = useState(false);
   const [otp, setOtp] = useState("");
+  const [devOtp, setDevOtp] = useState("");
   const [loading, setLoading] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [countdown, setCountdown] = useState(0);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    let timer;
+    if (countdown > 0) {
+      timer = setInterval(() => {
+        setCountdown((prev) => prev - 1);
+      }, 1000);
+    }
+    return () => clearInterval(timer);
+  }, [countdown]);
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
   const handleOtpChange = (e) => {
-    setOtp(e.target.value);
+    const val = e.target.value.replace(/\D/g, "").slice(0, 6);
+    setOtp(val);
+  };
+
+  const handleFillDevOtp = () => {
+    if (devOtp) {
+      setOtp(devOtp);
+      toast.success("Verification code autofilled!");
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -38,6 +60,7 @@ const SignUp = () => {
       return;
     }
     setLoading(true);
+    setDevOtp("");
     try {
       const response = await fetch(`${API_BASE_URL}/api/auth/register`, {
         method: "POST",
@@ -50,9 +73,12 @@ const SignUp = () => {
       const data = await response.json();
 
       if (response.ok) {
-        if (data.requiresVerification) {
+        if (data.requiresVerification || data.requiresOtp) {
           toast.success(data.message);
+          if (data.devOtp) setDevOtp(data.devOtp);
           setStep(2);
+          setCountdown(60);
+          setOtp("");
         } else {
           sessionStorage.setItem("token", data.token);
           sessionStorage.setItem("user", JSON.stringify(data.user));
@@ -71,6 +97,10 @@ const SignUp = () => {
 
   const handleVerifyOtp = async (e) => {
     e.preventDefault();
+    if (otp.length !== 6) {
+      toast.warning("Please enter a valid 6-digit verification code.");
+      return;
+    }
     setLoading(true);
     try {
       const response = await fetch(`${API_BASE_URL}/api/auth/verify-otp`, {
@@ -95,6 +125,34 @@ const SignUp = () => {
       toast.error("An error occurred. Please try again.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleResendOtp = async () => {
+    if (countdown > 0 || resending) return;
+    setResending(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/resend-otp`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email: formData.email }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        toast.success(data.message || "A new code has been sent!");
+        if (data.devOtp) setDevOtp(data.devOtp);
+        setCountdown(60);
+      } else {
+        toast.error(data.message || "Failed to resend code.");
+      }
+    } catch (error) {
+      toast.error("Could not resend code. Please check your connection.");
+    } finally {
+      setResending(false);
     }
   };
 
@@ -129,7 +187,9 @@ const SignUp = () => {
               </Link>
             </>
           ) : (
-            `Enter the 6-digit code sent to ${formData.email}`
+            <span>
+              Enter the 6-digit code sent to <strong className="text-slate-900">{formData.email}</strong>
+            </span>
           )}
         </p>
       </div>
@@ -235,35 +295,95 @@ const SignUp = () => {
                 <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-3">
                   <HiOutlineKey className="w-6 h-6" />
                 </div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-2">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1.5">
                   Enter 6-Digit Verification Code
                 </label>
-                <input
-                  type="text"
-                  name="otp"
-                  value={otp}
-                  onChange={handleOtpChange}
-                  required
-                  maxLength={6}
-                  className="block w-full py-3 text-center tracking-[0.5em] text-2xl font-bold font-mono rounded-xl border border-slate-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 text-slate-900 outline-none transition"
-                  placeholder="------"
-                  autoFocus
-                />
+                <p className="text-xs text-slate-500 mb-4">
+                  Check your inbox and spam folder for the one-time code.
+                </p>
+
+                {devOtp && (
+                  <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl text-left flex items-center justify-between">
+                    <div>
+                      <p className="text-[11px] font-semibold text-amber-800">Development / Test Mode</p>
+                      <p className="text-xs font-mono font-bold text-amber-900">OTP: {devOtp}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleFillDevOtp}
+                      className="px-2.5 py-1 text-xs font-medium bg-amber-600 hover:bg-amber-700 text-white rounded-lg transition cursor-pointer"
+                    >
+                      Autofill
+                    </button>
+                  </div>
+                )}
+
+                <div className="relative">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    name="otp"
+                    value={otp}
+                    onChange={handleOtpChange}
+                    required
+                    maxLength={6}
+                    className="block w-full py-3.5 text-center tracking-[0.5em] text-2xl font-bold font-mono rounded-xl border-2 border-slate-300 focus:border-blue-600 focus:ring-4 focus:ring-blue-500/10 text-slate-900 outline-none transition shadow-sm"
+                    placeholder="000000"
+                    autoFocus
+                  />
+                </div>
               </div>
 
-              <div className="space-y-3">
+              <div className="flex items-center justify-between text-xs px-1">
+                <span className="text-slate-500">Didn't receive the code?</span>
+                {countdown > 0 ? (
+                  <span className="font-semibold text-slate-400">
+                    Resend in {countdown}s
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleResendOtp}
+                    disabled={resending}
+                    className="inline-flex items-center gap-1 font-semibold text-blue-600 hover:text-blue-700 transition cursor-pointer disabled:opacity-50"
+                  >
+                    {resending ? (
+                      <>
+                        <HiOutlineArrowPath className="w-3.5 h-3.5 animate-spin" />
+                        <span>Sending...</span>
+                      </>
+                    ) : (
+                      "Resend Code"
+                    )}
+                  </button>
+                )}
+              </div>
+
+              <div className="space-y-3 pt-2">
                 <button
                   type="submit"
-                  disabled={loading}
-                  className="w-full flex justify-center items-center gap-2 py-3 px-4 border border-transparent rounded-xl shadow-md shadow-emerald-500/20 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500 transition-all cursor-pointer disabled:opacity-60"
+                  disabled={loading || otp.length !== 6}
+                  className="w-full flex justify-center items-center gap-2 py-3 px-4 border border-transparent rounded-xl shadow-md shadow-emerald-500/20 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {loading ? "Verifying..." : "Verify & Complete Setup"}
+                  {loading ? (
+                    <span>Verifying Code...</span>
+                  ) : (
+                    <>
+                      <HiOutlineCheckCircle className="w-4 h-4" />
+                      Verify & Complete Setup
+                    </>
+                  )}
                 </button>
 
                 <button
                   type="button"
-                  onClick={() => setStep(1)}
-                  className="w-full text-center py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 transition"
+                  onClick={() => {
+                    setStep(1);
+                    setOtp("");
+                    setDevOtp("");
+                  }}
+                  className="w-full text-center py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 transition cursor-pointer"
                 >
                   ← Edit Name or Email
                 </button>
