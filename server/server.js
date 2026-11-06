@@ -13,7 +13,16 @@ const authRoute = require("./routes/auth.route");
 
 // Middleware
 app.use(cors({ origin: true, credentials: true }));
-app.use(bodyParser.json());
+
+// Handle pre-parsed JSON body from Vercel Serverless
+app.use((req, res, next) => {
+  if (req.body && typeof req.body === "object") {
+    req._body = true;
+  }
+  next();
+});
+app.use(bodyParser.json({ limit: "10mb" }));
+app.use(bodyParser.urlencoded({ extended: true, limit: "10mb" }));
 
 // Database connection middleware for serverless invocations
 app.use(async (req, res, next) => {
@@ -56,6 +65,19 @@ app.get(["/api", "/"], (req, res) => {
 
 app.use(["/api/auth", "/auth"], authRoute);
 app.use(["/api", "/"], billGenerateRoute);
+
+// Global error handler
+app.use((err, req, res, next) => {
+  console.error("Express Error Handler caught:", err);
+  if (res.headersSent) {
+    return next(err);
+  }
+  res.status(500).json({
+    status: "error",
+    message: err.message || "Internal Server Error",
+    error: err.name || "Error",
+  });
+});
 
 // Connect once on initialization in local/traditional servers
 connectDB().catch((err) => console.error("Initial DB connect error:", err.message));

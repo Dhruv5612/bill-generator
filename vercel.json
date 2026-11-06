@@ -3,6 +3,9 @@
   "buildCommand": "pnpm run build",
   "outputDirectory": "dist",
   "functions": {
+    "api/index.js": {
+      "includeFiles": "server/**"
+    },
     "api/*.js": {
       "includeFiles": "server/**"
     }
