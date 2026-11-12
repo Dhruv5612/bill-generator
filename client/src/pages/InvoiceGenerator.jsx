@@ -1,8 +1,7 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { toast } from "react-toastify";
 import { useNavigate, useLocation, Link } from "react-router-dom";
-import CompanyModal from "../components/CompanyModal";
 import ProfileDropdown from "../components/ProfileDropdown";
 import { API_BASE_URL } from "../config/api";
 import {
@@ -20,8 +19,6 @@ import {
   HiOutlineCheckCircle,
   HiOutlineShieldCheck,
   HiOutlinePencilSquare,
-  HiOutlineLockClosed,
-  HiOutlineBookmark,
 } from "react-icons/hi2";
 
 const indianStates = [
@@ -125,10 +122,10 @@ const InvoiceGenerator = () => {
   };
 
   const [savedCompanies, setSavedCompanies] = useState([]);
-  const [companyMode, setCompanyMode] = useState("saved"); // "saved" or "manual"
+  const [companyMode, setCompanyMode] = useState("manual"); // "saved" or "manual"
   const [showCompanyFields, setShowCompanyFields] = useState(false);
-  const [isCompanyModalOpen, setIsCompanyModalOpen] = useState(false);
-  const [editingCompany, setEditingCompany] = useState(null);
+  const userManualOverrideRef = useRef(false);
+  const userTypedCompanyRef = useRef(false);
 
   const getStateFromGSTIN = (gstin) => {
     if (!gstin || gstin.length < 2) return null;
@@ -176,16 +173,19 @@ const InvoiceGenerator = () => {
       }
     }
 
-    // Auto-fill target company: either passed from state or the default 1st company
-    const defaultCompany = location.state?.selectedCompany 
-      ? loaded.find(c => c.companyName.toLowerCase() === location.state.selectedCompany.toLowerCase()) 
+    // Auto-fill target company only if user has saved companies; otherwise stay in manual mode
+    const defaultCompany = location.state?.selectedCompany
+      ? loaded.find(c => c.companyName.toLowerCase() === location.state.selectedCompany.toLowerCase())
       : (loaded.length > 0 ? loaded[0] : null);
 
     if (defaultCompany) {
+      setCompanyMode("saved");
       autofillCompanyDetails(defaultCompany, Boolean(location.state?.selectedCompany));
+    } else {
+      setCompanyMode("manual");
     }
 
-    // Also fetch from API to ensure sync
+    // Fetch from API to sync companies
     const fetchCompaniesFromApi = async () => {
       try {
         const token = sessionStorage.getItem("token");
@@ -195,32 +195,39 @@ const InvoiceGenerator = () => {
         });
         if (res.ok) {
           const apiData = await res.json();
-          if (Array.isArray(apiData) && apiData.length > 0) {
+          if (Array.isArray(apiData)) {
             setSavedCompanies(apiData);
             localStorage.setItem(companyKey, JSON.stringify(apiData));
 
-            // If form has no company name filled yet, auto-fill from 1st fetched company
-            setFormData((current) => {
-              if (!current.companyName && apiData.length > 0) {
-                const comp = apiData[0];
-                const state = getStateFromGSTIN(comp.companyGSTIN);
-                return {
-                  ...current,
-                  companyName: comp.companyName || "",
-                  companyAddress: comp.companyAddress || "",
-                  companyEmail: comp.companyEmail || "",
-                  companyMobile: comp.companyMobile || "",
-                  companyPAN: comp.companyPAN || "",
-                  companyGSTIN: comp.companyGSTIN || "",
-                  bankName: comp.bankName || "",
-                  bankAcNo: comp.bankAcNo || "",
-                  bankIFSC: comp.bankIFSC || "",
-                  supplierPlaceOfSupply: state || current.supplierPlaceOfSupply,
-                  buyerPlaceOfSupply: current.buyerPlaceOfSupply || state || "24-Gujarat",
-                };
-              }
-              return current;
-            });
+            if (apiData.length > 0 && !userManualOverrideRef.current && !userTypedCompanyRef.current) {
+              const target = location.state?.selectedCompany
+                ? apiData.find(c => c.companyName.toLowerCase() === location.state.selectedCompany.toLowerCase()) || apiData[0]
+                : apiData[0];
+
+              setCompanyMode("saved");
+              setFormData((current) => {
+                if (!current.companyName) {
+                  const state = getStateFromGSTIN(target.companyGSTIN);
+                  return {
+                    ...current,
+                    companyName: target.companyName || "",
+                    companyAddress: target.companyAddress || "",
+                    companyEmail: target.companyEmail || "",
+                    companyMobile: target.companyMobile || "",
+                    companyPAN: target.companyPAN || "",
+                    companyGSTIN: target.companyGSTIN || "",
+                    bankName: target.bankName || "",
+                    bankAcNo: target.bankAcNo || "",
+                    bankIFSC: target.bankIFSC || "",
+                    supplierPlaceOfSupply: state || current.supplierPlaceOfSupply,
+                    buyerPlaceOfSupply: current.buyerPlaceOfSupply || state || "24-Gujarat",
+                  };
+                }
+                return current;
+              });
+            } else if (apiData.length === 0) {
+              setCompanyMode("manual");
+            }
           }
         }
       } catch (e) {
@@ -232,7 +239,9 @@ const InvoiceGenerator = () => {
 
   const handleSelectCompany = (compName) => {
     if (compName === "__manual__" || !compName) {
+      userManualOverrideRef.current = true;
       setCompanyMode("manual");
+      setShowCompanyFields(false);
       setFormData((prev) => ({
         ...prev,
         companyName: "",
@@ -245,11 +254,13 @@ const InvoiceGenerator = () => {
         bankAcNo: "",
         bankIFSC: "",
       }));
-      toast.info("Manual Entry Mode: Fill in your company & bank blanks below.");
+      toast.info("Manual Entry active: Fill in your details below.");
       return;
     }
 
+    userManualOverrideRef.current = false;
     setCompanyMode("saved");
+    setShowCompanyFields(false);
     const found = savedCompanies.find(c => c.companyName.toLowerCase() === compName.toLowerCase());
     if (found) {
       autofillCompanyDetails(found, true);
@@ -257,6 +268,7 @@ const InvoiceGenerator = () => {
   };
 
   const handleClearCompanyDetails = () => {
+    userTypedCompanyRef.current = false;
     setFormData((prev) => ({
       ...prev,
       companyName: "",
@@ -269,77 +281,7 @@ const InvoiceGenerator = () => {
       bankAcNo: "",
       bankIFSC: "",
     }));
-    toast.info("Company blanks cleared for fresh manual entry.");
-  };
-
-  const handleSaveCurrentAsCompany = async () => {
-    if (!formData.companyName || !formData.companyName.trim()) {
-      toast.warning("Please enter a Company / Business Name first.");
-      return;
-    }
-
-    const newProfile = {
-      companyName: formData.companyName.trim(),
-      companyAddress: formData.companyAddress || "",
-      companyEmail: formData.companyEmail || "",
-      companyMobile: formData.companyMobile || "",
-      companyPAN: formData.companyPAN || "",
-      companyGSTIN: formData.companyGSTIN || "",
-      bankName: formData.bankName || "",
-      bankAcNo: formData.bankAcNo || "",
-      bankIFSC: formData.bankIFSC || "",
-    };
-
-    await handleSaveCompanyFromGenerator(newProfile);
-    setCompanyMode("saved");
-    toast.success(`"${newProfile.companyName}" successfully saved to your permanent business profiles!`);
-  };
-
-  const handleSaveCompanyFromGenerator = async (newCompanyData) => {
-    const storedUser = sessionStorage.getItem("user");
-    const userObj = storedUser ? JSON.parse(storedUser) : null;
-    const companyKey = userObj ? `savedCompanies_${userObj.id}` : "savedCompanies";
-
-    let updated;
-    if (editingCompany) {
-      const idx = savedCompanies.findIndex(c => c.companyName === editingCompany.companyName);
-      if (idx !== -1) {
-        updated = [...savedCompanies];
-        updated[idx] = newCompanyData;
-      } else {
-        updated = [newCompanyData, ...savedCompanies];
-      }
-    } else {
-      const existingIdx = savedCompanies.findIndex(
-        (c) => c.companyName.toLowerCase() === newCompanyData.companyName.trim().toLowerCase()
-      );
-      if (existingIdx >= 0) {
-        updated = [...savedCompanies];
-        updated[existingIdx] = newCompanyData;
-      } else {
-        updated = [newCompanyData, ...savedCompanies];
-      }
-    }
-
-    setSavedCompanies(updated);
-    localStorage.setItem(companyKey, JSON.stringify(updated));
-    autofillCompanyDetails(newCompanyData, true);
-
-    try {
-      const token = sessionStorage.getItem("token");
-      if (token) {
-        await fetch(`${API_BASE_URL}/api/companies`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`
-          },
-          body: JSON.stringify(newCompanyData)
-        });
-      }
-    } catch (e) {
-      console.warn("Backend save warning:", e);
-    }
+    toast.info("Details cleared for fresh manual entry.");
   };
 
   const [items, setItems] = useState([
@@ -348,6 +290,9 @@ const InvoiceGenerator = () => {
 
   const handleFormChange = (e) => {
     const { name, value } = e.target;
+    if (name.startsWith("company") || name.startsWith("bank")) {
+      userTypedCompanyRef.current = true;
+    }
     if (
       name === "buyerGSTIN" ||
       name === "buyerPAN" ||
@@ -600,148 +545,86 @@ const InvoiceGenerator = () => {
             </button>
           </div>
 
-          {/* Card 1: Select Business Profile & Autofill OR Manual Entry */}
+          {/* Card 1: Business / Company Details (Select Saved Company OR Fill Manually) */}
           <div className="bg-white p-6 rounded-2xl shadow-xs border border-slate-200/80">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 border-b border-slate-100 pb-3">
               <div>
                 <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
                   <HiOutlineBuildingOffice2 className={`w-5 h-5 ${billType === 'purchase' ? 'text-emerald-600' : 'text-blue-600'}`} />
-                  {billType === "purchase" ? "Purchaser Entity (Your Business Profile)" : "Billed By (Company / Business Entity)"}
+                  {billType === "purchase" ? "Purchaser Entity (Your Business Details)" : "Billed By (Company / Business Details)"}
                 </h3>
                 <p className="text-[11px] text-slate-500 mt-0.5">
-                  {billType === "purchase"
-                    ? "Your registered business receiving the goods/fuel (Consignee / Purchaser)"
-                    : "Select a saved company to auto-fill blanks or choose manual entry to fill details yourself."}
+                  {savedCompanies.length === 0
+                    ? "No company added — enter your business & bank details manually below."
+                    : companyMode === "manual"
+                    ? "No company selected — fill all business & bank details manually below."
+                    : "All business, tax & bank details auto-filled from your selected company."}
                 </p>
               </div>
 
-              {/* Mode Selector and Quick Actions */}
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="inline-flex rounded-xl bg-slate-100 p-1 border border-slate-200/80">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCompanyMode("saved");
-                      if (savedCompanies.length > 0) {
-                        const cur = savedCompanies.find(c => c.companyName.toLowerCase() === formData.companyName.toLowerCase()) || savedCompanies[0];
-                        autofillCompanyDetails(cur, true);
-                      } else {
-                        toast.info("No saved companies yet. You can enter details manually or add a new profile.");
-                      }
-                    }}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
-                      companyMode === "saved"
-                        ? "bg-white text-blue-700 shadow-xs"
-                        : "text-slate-600 hover:text-slate-900"
-                    }`}
-                  >
-                    <HiOutlineBuildingOffice2 className="w-3.5 h-3.5" />
-                    <span>Saved Company {savedCompanies.length > 0 ? `(${savedCompanies.length})` : ""}</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCompanyMode("manual");
-                      toast.info("Manual Entry Mode active: You can now fill in all company & bank details below.");
-                    }}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
-                      companyMode === "manual"
-                        ? "bg-white text-blue-700 shadow-xs"
-                        : "text-slate-600 hover:text-slate-900"
-                    }`}
-                  >
-                    <HiOutlinePencilSquare className="w-3.5 h-3.5" />
-                    <span>Manual Entry (No Company)</span>
-                  </button>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEditingCompany(null);
-                    setIsCompanyModalOpen(true);
-                  }}
-                  className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100/70 px-3 py-1.5 rounded-lg font-bold transition cursor-pointer border border-blue-200/60"
-                  title="Add a new permanent business profile"
-                >
-                  <HiOutlinePlus className="w-3.5 h-3.5" /> New Profile
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => navigate('/dashboard')}
-                  className="text-xs text-slate-500 hover:text-slate-800 font-semibold px-2 py-1.5 transition cursor-pointer"
-                >
-                  Dashboard
-                </button>
-              </div>
-            </div>
-
-            {/* Dropdown Company Selector */}
-            <div className="space-y-1.5 mb-4">
-              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center justify-between">
-                <span>Select Company Option:</span>
-                <span className="text-[11px] font-normal normal-case text-slate-500">
-                  {companyMode === "manual"
-                    ? "✍️ No company selected — filling details manually below"
-                    : "⚡ Select saved company to autofill all blanks"}
-                </span>
-              </label>
-              <select
-                value={companyMode === "manual" ? "__manual__" : (formData.companyName || "")}
-                onChange={(e) => handleSelectCompany(e.target.value)}
-                className="w-full p-3 text-sm font-semibold rounded-xl border border-slate-300 bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 text-slate-900 outline-none transition cursor-pointer shadow-2xs"
+              <button
+                type="button"
+                onClick={() => navigate('/dashboard')}
+                className="text-xs text-slate-500 hover:text-slate-800 font-semibold px-2.5 py-1.5 rounded-lg hover:bg-slate-100 transition cursor-pointer self-start sm:self-auto"
               >
-                <optgroup label="✍️ Manual Option">
-                  <option value="__manual__">
-                    📝 No Company / Enter All Details Manually (Custom)
-                  </option>
-                </optgroup>
-                {savedCompanies.length > 0 && (
-                  <optgroup label="🏢 Saved Business Profiles">
-                    {savedCompanies.map((c, idx) => (
-                      <option key={idx} value={c.companyName}>
-                        {c.companyName} {c.companyGSTIN ? `(GST: ${c.companyGSTIN})` : ""}
-                      </option>
-                    ))}
-                  </optgroup>
-                )}
-              </select>
+                Dashboard
+              </button>
             </div>
 
-            {/* Saved Company Active Preview Card */}
-            {companyMode === "saved" && formData.companyName && (
+            {/* Company Select Dropdown (shown when saved companies exist) or Direct Manual Entry notice */}
+            {savedCompanies.length > 0 ? (
+              <div className="space-y-1.5 mb-4">
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center justify-between">
+                  <span>Select Company:</span>
+                  <span className="text-[11px] font-normal normal-case text-slate-500">
+                    {companyMode === "manual"
+                      ? "✍️ Manual entry — fill details below"
+                      : "⚡ Selecting a company auto-fills all blanks"}
+                  </span>
+                </label>
+                <select
+                  value={companyMode === "manual" ? "__manual__" : (formData.companyName || "__manual__")}
+                  onChange={(e) => handleSelectCompany(e.target.value)}
+                  className="w-full p-3 text-sm font-semibold rounded-xl border border-slate-300 bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 text-slate-900 outline-none transition cursor-pointer shadow-2xs"
+                >
+                  <option value="__manual__">
+                    ✍️ No Company (Manually Enter Details)
+                  </option>
+                  {savedCompanies.map((c, idx) => (
+                    <option key={idx} value={c.companyName}>
+                      🏢 {c.companyName} {c.companyGSTIN ? `(GST: ${c.companyGSTIN})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : (
+              <div className="p-3 mb-4 bg-blue-50/70 border border-blue-200/80 rounded-xl flex items-center gap-2 text-xs text-blue-800 font-medium">
+                <HiOutlinePencilSquare className="w-4 h-4 text-blue-600 shrink-0" />
+                <span>
+                  No saved company added. Manually enter your business, tax, and bank details below for this invoice.
+                </span>
+              </div>
+            )}
+
+            {/* Saved Company Selected Summary View */}
+            {companyMode === "saved" && savedCompanies.length > 0 && formData.companyName && (
               <div className="space-y-3">
                 {/* Autofill Notification Banner */}
                 <div className="p-2.5 px-3.5 bg-emerald-50 border border-emerald-200/80 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-emerald-800">
                   <span className="flex items-center gap-2 font-medium">
                     <HiOutlineShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
                     <span>
-                      <strong>Protected Entity Active:</strong> All blanks (Address, GSTIN, PAN, Bank Details & State) auto-filled from <strong>{formData.companyName}</strong>.
+                      <strong>Company Selected:</strong> All blanks auto-filled from <strong>{formData.companyName}</strong>.
                     </span>
                   </span>
-                  <div className="flex items-center gap-3 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => setShowCompanyFields(!showCompanyFields)}
-                      className="inline-flex items-center gap-1 font-bold text-blue-700 hover:text-blue-900 underline cursor-pointer text-[11px]"
-                    >
-                      <HiOutlinePencilSquare className="w-3.5 h-3.5" />
-                      {showCompanyFields ? "Hide Editable Inputs" : "View / Edit Blanks"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const cur = savedCompanies.find(c => c.companyName.toLowerCase() === formData.companyName.toLowerCase());
-                        setEditingCompany(cur || null);
-                        setIsCompanyModalOpen(true);
-                      }}
-                      className="inline-flex items-center gap-1 font-bold text-emerald-700 hover:text-emerald-900 underline cursor-pointer text-[11px]"
-                    >
-                      Edit Profile
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowCompanyFields(!showCompanyFields)}
+                    className="inline-flex items-center gap-1 font-bold text-blue-700 hover:text-blue-900 underline cursor-pointer text-[11px] shrink-0"
+                  >
+                    <HiOutlinePencilSquare className="w-3.5 h-3.5" />
+                    {showCompanyFields ? "Hide Editable Inputs" : "Edit Blanks for This Bill"}
+                  </button>
                 </div>
 
                 {/* Company Summary Card */}
@@ -766,37 +649,16 @@ const InvoiceGenerator = () => {
               </div>
             )}
 
-            {/* Editable Fields: Shown when Manual Entry Mode is selected, OR when user clicks "View / Edit Blanks", OR if no company is selected */}
-            {(companyMode === "manual" || showCompanyFields || (!formData.companyName && companyMode === "saved")) && (
-              <div className={`space-y-4 ${companyMode === "saved" ? "mt-4 pt-4 border-t border-slate-200/80" : ""}`}>
-                {companyMode === "manual" && (
-                  <div className="p-3 bg-blue-50/80 border border-blue-200/80 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-blue-800">
-                    <span className="flex items-center gap-2 font-medium">
-                      <HiOutlinePencilSquare className="w-4 h-4 text-blue-600 shrink-0" />
-                      <span>
-                        <strong>Manual Entry Mode:</strong> No company selected. Fill all company, tax, and bank details manually below.
-                      </span>
-                    </span>
-                    {formData.companyName && (
-                      <button
-                        type="button"
-                        onClick={handleSaveCurrentAsCompany}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition text-[11px] cursor-pointer whitespace-nowrap shadow-2xs"
-                      >
-                        <HiOutlineBookmark className="w-3.5 h-3.5" />
-                        Save to My Profiles
-                      </button>
-                    )}
-                  </div>
-                )}
-
+            {/* Manual Entry Fields (shown automatically when no company is added/selected, or when editing blanks) */}
+            {(companyMode === "manual" || savedCompanies.length === 0 || showCompanyFields) && (
+              <div className={`space-y-4 ${companyMode === "saved" && savedCompanies.length > 0 ? "mt-4 pt-4 border-t border-slate-200/80" : ""}`}>
                 {/* Grid of All Company & Bank Blanks */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   {/* Company Name */}
                   <div className="sm:col-span-2">
                     <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center justify-between">
                       <span>Company / Business Name *</span>
-                      <span className="text-[10px] text-slate-400 font-normal">Header on invoice</span>
+                      <span className="text-[10px] text-slate-400 font-normal">Printed at top of invoice</span>
                     </label>
                     <input
                       type="text"
@@ -951,32 +813,19 @@ const InvoiceGenerator = () => {
                   </div>
                 </div>
 
-                {/* Actions Row */}
+                {/* Clear Action */}
                 <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-100">
-                  <div className="flex items-center gap-2">
-                    {companyMode === "manual" && (
-                      <button
-                        type="button"
-                        onClick={handleSaveCurrentAsCompany}
-                        disabled={!formData.companyName.trim()}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white text-xs font-bold rounded-lg shadow-2xs transition cursor-pointer disabled:cursor-not-allowed"
-                      >
-                        <HiOutlineBookmark className="w-3.5 h-3.5" />
-                        Save this Company to My Profile
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={handleClearCompanyDetails}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200/80 text-xs font-semibold rounded-lg transition cursor-pointer"
-                    >
-                      <HiOutlineArrowPath className="w-3.5 h-3.5" />
-                      Clear Company Blanks
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={handleClearCompanyDetails}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200/80 text-xs font-semibold rounded-lg transition cursor-pointer"
+                  >
+                    <HiOutlineArrowPath className="w-3.5 h-3.5" />
+                    Clear Details
+                  </button>
 
                   <p className="text-[11px] text-slate-500">
-                    💡 All blanks above will print directly in your generated Tax Invoice or Purchase Bill.
+                    All details entered above will be used directly on this invoice PDF.
                   </p>
                 </div>
               </div>
@@ -1572,16 +1421,6 @@ const InvoiceGenerator = () => {
           </div>
         </div>
 
-        {/* Company Modal */}
-        <CompanyModal
-          isOpen={isCompanyModalOpen}
-          onClose={() => {
-            setIsCompanyModalOpen(false);
-            setEditingCompany(null);
-          }}
-          onSave={handleSaveCompanyFromGenerator}
-          initialData={editingCompany}
-        />
       </main>
     </div>
   );
