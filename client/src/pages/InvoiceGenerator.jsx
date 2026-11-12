@@ -69,12 +69,12 @@ const InvoiceGenerator = () => {
     return `${prefix}/${new Date().getFullYear()}/${Math.floor(100 + Math.random() * 900)}`;
   };
 
-  const [formData, setFormData] = useState({
-    billType: "sales",
-    invoiceNumber: generateInvoiceNumber("sales"),
-    billDate: new Date().toISOString().split("T")[0],
+  const createBlankFormData = (type = "sales") => ({
+    billType: type,
+    invoiceNumber: "",
+    billDate: "",
     vendorBillNo: "",
-    vendorBillDate: new Date().toISOString().split("T")[0],
+    vendorBillDate: "",
     companyName: "",
     companyAddress: "",
     companyEmail: "",
@@ -86,12 +86,12 @@ const InvoiceGenerator = () => {
     bankIFSC: "",
     buyerName: "",
     buyerAddress: "",
-    buyerPlaceOfSupply: "24-Gujarat",
+    buyerPlaceOfSupply: "",
     buyerPAN: "",
     buyerGSTIN: "",
     supplierName: "",
     supplierAddress: "",
-    supplierPlaceOfSupply: "24-Gujarat",
+    supplierPlaceOfSupply: "",
     supplierPAN: "",
     supplierGSTIN: "",
     shipName: "",
@@ -105,12 +105,31 @@ const InvoiceGenerator = () => {
     email: "" // Optional client delivery email
   });
 
+  const createBlankItem = () => ({
+    id: uuidv4(),
+    productName: "",
+    hsnSac: "",
+    qty: "",
+    unit: "",
+    rate: "",
+    gstPercent: "",
+    amount: 0,
+  });
+
+  const [formData, setFormData] = useState(() => createBlankFormData("sales"));
+
+  const [savedCompanies, setSavedCompanies] = useState([]);
+  const [companyMode, setCompanyMode] = useState("manual"); // "saved" or "manual"
+  const [showCompanyFields, setShowCompanyFields] = useState(false);
+  const userManualOverrideRef = useRef(false);
+  const userTypedCompanyRef = useRef(false);
+
   const handleBillTypeChange = (type) => {
     setBillType(type);
     setFormData((prev) => ({
       ...prev,
       billType: type,
-      invoiceNumber: generateInvoiceNumber(type),
+      invoiceNumber: companyMode === "saved" ? generateInvoiceNumber(type) : prev.invoiceNumber,
     }));
     toast.info(
       `Switched mode to: ${
@@ -121,12 +140,6 @@ const InvoiceGenerator = () => {
     );
   };
 
-  const [savedCompanies, setSavedCompanies] = useState([]);
-  const [companyMode, setCompanyMode] = useState("manual"); // "saved" or "manual"
-  const [showCompanyFields, setShowCompanyFields] = useState(false);
-  const userManualOverrideRef = useRef(false);
-  const userTypedCompanyRef = useRef(false);
-
   const getStateFromGSTIN = (gstin) => {
     if (!gstin || gstin.length < 2) return null;
     const code = gstin.substring(0, 2);
@@ -136,9 +149,13 @@ const InvoiceGenerator = () => {
   const autofillCompanyDetails = (company, notify = false) => {
     if (!company) return;
     const detectedState = getStateFromGSTIN(company.companyGSTIN);
+    const today = new Date().toISOString().split("T")[0];
 
     setFormData((prev) => ({
       ...prev,
+      invoiceNumber: prev.invoiceNumber || generateInvoiceNumber(billType),
+      billDate: prev.billDate || today,
+      vendorBillDate: prev.vendorBillDate || today,
       companyName: company.companyName || "",
       companyAddress: company.companyAddress || "",
       companyEmail: company.companyEmail || "",
@@ -173,7 +190,7 @@ const InvoiceGenerator = () => {
       }
     }
 
-    // Auto-fill target company only if user has saved companies; otherwise stay in manual mode
+    // Auto-fill target company only if user has saved companies; otherwise all entries remain blank
     const defaultCompany = location.state?.selectedCompany
       ? loaded.find(c => c.companyName.toLowerCase() === location.state.selectedCompany.toLowerCase())
       : (loaded.length > 0 ? loaded[0] : null);
@@ -208,8 +225,12 @@ const InvoiceGenerator = () => {
               setFormData((current) => {
                 if (!current.companyName) {
                   const state = getStateFromGSTIN(target.companyGSTIN);
+                  const today = new Date().toISOString().split("T")[0];
                   return {
                     ...current,
+                    invoiceNumber: current.invoiceNumber || generateInvoiceNumber(billType),
+                    billDate: current.billDate || today,
+                    vendorBillDate: current.vendorBillDate || today,
                     companyName: target.companyName || "",
                     companyAddress: target.companyAddress || "",
                     companyEmail: target.companyEmail || "",
@@ -219,7 +240,7 @@ const InvoiceGenerator = () => {
                     bankName: target.bankName || "",
                     bankAcNo: target.bankAcNo || "",
                     bankIFSC: target.bankIFSC || "",
-                    supplierPlaceOfSupply: state || current.supplierPlaceOfSupply,
+                    supplierPlaceOfSupply: state || current.supplierPlaceOfSupply || "24-Gujarat",
                     buyerPlaceOfSupply: current.buyerPlaceOfSupply || state || "24-Gujarat",
                   };
                 }
@@ -240,21 +261,12 @@ const InvoiceGenerator = () => {
   const handleSelectCompany = (compName) => {
     if (compName === "__manual__" || !compName) {
       userManualOverrideRef.current = true;
+      userTypedCompanyRef.current = false;
       setCompanyMode("manual");
       setShowCompanyFields(false);
-      setFormData((prev) => ({
-        ...prev,
-        companyName: "",
-        companyAddress: "",
-        companyEmail: "",
-        companyMobile: "",
-        companyPAN: "",
-        companyGSTIN: "",
-        bankName: "",
-        bankAcNo: "",
-        bankIFSC: "",
-      }));
-      toast.info("Manual Entry active: Fill in your details below.");
+      setFormData(createBlankFormData(billType));
+      setItems([createBlankItem()]);
+      toast.info("Manual Entry active — all entries are blank.");
       return;
     }
 
@@ -269,6 +281,12 @@ const InvoiceGenerator = () => {
 
   const handleClearCompanyDetails = () => {
     userTypedCompanyRef.current = false;
+    if (companyMode === "manual") {
+      setFormData(createBlankFormData(billType));
+      setItems([createBlankItem()]);
+      toast.info("All entries cleared.");
+      return;
+    }
     setFormData((prev) => ({
       ...prev,
       companyName: "",
@@ -280,13 +298,12 @@ const InvoiceGenerator = () => {
       bankName: "",
       bankAcNo: "",
       bankIFSC: "",
+      supplierPlaceOfSupply: "",
     }));
-    toast.info("Details cleared for fresh manual entry.");
+    toast.info("Company blanks cleared.");
   };
 
-  const [items, setItems] = useState([
-    { id: uuidv4(), productName: "High Speed Diesel", hsnSac: "27101930", qty: "100", unit: "Ltr", rate: "92.50", gstPercent: 5, amount: 9250 }
-  ]);
+  const [items, setItems] = useState(() => [createBlankItem()]);
 
   const handleFormChange = (e) => {
     const { name, value } = e.target;
@@ -342,10 +359,7 @@ const InvoiceGenerator = () => {
   };
 
   const addItem = () => {
-    setItems([
-      ...items,
-      { id: uuidv4(), productName: "", hsnSac: "", qty: "1", unit: "Ltr", rate: "0", gstPercent: 5, amount: 0 }
-    ]);
+    setItems([...items, createBlankItem()]);
   };
 
   const removeItem = (id) => {
@@ -380,8 +394,18 @@ const InvoiceGenerator = () => {
       return;
     }
 
-    if (items.length === 0) {
-      toast.error("Please add at least one line item.");
+    if (!formData.invoiceNumber || !formData.invoiceNumber.trim()) {
+      toast.warning("Please enter an Invoice / Bill Number.");
+      return;
+    }
+
+    if (!formData.billDate) {
+      toast.warning("Please select a Bill Date.");
+      return;
+    }
+
+    if (items.length === 0 || items.some(item => !item.productName || !item.productName.trim())) {
+      toast.error("Please enter a product name for each line item.");
       return;
     }
 
@@ -439,7 +463,10 @@ const InvoiceGenerator = () => {
             ? "Purchase Bill PDF downloaded successfully!"
             : "Tax Invoice PDF downloaded successfully!"
         );
-        setFormData(prev => ({ ...prev, invoiceNumber: generateInvoiceNumber(billType) }));
+        setFormData(prev => ({
+          ...prev,
+          invoiceNumber: companyMode === "saved" ? generateInvoiceNumber(billType) : ""
+        }));
       } else {
         const errorData = await response.json();
         toast.error(errorData.message || "Failed to generate the invoice.");
@@ -682,6 +709,7 @@ const InvoiceGenerator = () => {
                       onChange={handleFormChange}
                       className="w-full p-2.5 text-sm rounded-xl border border-slate-300 bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 text-slate-900 outline-none cursor-pointer"
                     >
+                      <option value="">-- Select State --</option>
                       {indianStates.map((st, i) => (
                         <option key={i} value={st}>{st}</option>
                       ))}
@@ -821,7 +849,7 @@ const InvoiceGenerator = () => {
                     className="inline-flex items-center gap-1 px-3 py-1.5 text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200/80 text-xs font-semibold rounded-lg transition cursor-pointer"
                   >
                     <HiOutlineArrowPath className="w-3.5 h-3.5" />
-                    Clear Details
+                    {companyMode === "manual" ? "Clear All Entries" : "Clear Details"}
                   </button>
 
                   <p className="text-[11px] text-slate-500">
@@ -851,6 +879,7 @@ const InvoiceGenerator = () => {
                     name="invoiceNumber"
                     value={formData.invoiceNumber}
                     onChange={handleFormChange}
+                    placeholder={billType === "purchase" ? "e.g. PUR/2026/001" : "e.g. INV/2026/001"}
                     className={`w-full p-2.5 text-sm font-mono font-bold rounded-xl border border-slate-300 focus:ring-2 outline-none ${
                       billType === "purchase"
                         ? "text-emerald-700 focus:border-emerald-500 focus:ring-emerald-500/20"
@@ -973,6 +1002,7 @@ const InvoiceGenerator = () => {
                     }}
                     className="w-full p-2.5 text-sm rounded-xl border border-slate-300 bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 text-slate-900 outline-none cursor-pointer"
                   >
+                    <option value="">-- Select State --</option>
                     {indianStates.map((st, i) => (
                       <option key={i} value={st}>{st}</option>
                     ))}
@@ -1059,6 +1089,7 @@ const InvoiceGenerator = () => {
                     onChange={handleFormChange}
                     className="w-full p-2.5 text-sm rounded-xl border border-slate-300 bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 text-slate-900 outline-none cursor-pointer"
                   >
+                    <option value="">-- Select State --</option>
                     {indianStates.map((st, i) => (
                       <option key={i} value={st}>{st}</option>
                     ))}
@@ -1266,9 +1297,10 @@ const InvoiceGenerator = () => {
                     </label>
                     <select
                       value={item.gstPercent}
-                      onChange={(e) => handleItemChange(item.id, "gstPercent", Number(e.target.value))}
+                      onChange={(e) => handleItemChange(item.id, "gstPercent", e.target.value === "" ? "" : Number(e.target.value))}
                       className="w-full p-2 text-xs font-bold rounded-lg border border-slate-300 bg-white outline-none cursor-pointer"
                     >
+                      <option value="">-- %</option>
                       <option value="0">0%</option>
                       <option value="5">5%</option>
                       <option value="12">12%</option>
