@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from "react";
+import React, { Suspense, lazy, useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import ProfileDropdown from "../components/ProfileDropdown.jsx";
+
+const BillCraft3DScene = lazy(() => import("../components/BillCraft3DScene.jsx"));
 import {
   HiOutlineDocumentText,
   HiOutlineShieldCheck,
@@ -48,6 +50,7 @@ const Home = () => {
   const [user, setUser] = useState(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [previewTab, setPreviewTab] = useState("gst"); // "gst" or "fuel"
+  const [sceneMode, setSceneMode] = useState("gst"); // "gst", "fuel", or "vault"
   const [faqOpen, setFaqOpen] = useState(null);
 
   // Live Calculator State
@@ -394,64 +397,92 @@ const Home = () => {
       </header>
 
       {/* Hero Section */}
-      <section className="relative overflow-hidden pt-12 pb-20 lg:pt-20 lg:pb-28">
+      <section className="relative overflow-hidden pt-10 pb-20 lg:pt-16 lg:pb-24">
         {/* Background Gradient Blurs */}
         <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[400px] bg-gradient-to-tr from-blue-300/30 via-indigo-200/20 to-sky-200/30 rounded-full blur-3xl pointer-events-none -z-10" />
 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center max-w-3xl mx-auto space-y-6">
-            {/* Pill Badge */}
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-blue-50 border border-blue-200/80 text-blue-700 text-xs font-semibold shadow-xs">
-              <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse"></span>
-              Modern GST & Transport Billing for India
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-12 items-center">
+            <div className="lg:col-span-6 text-center lg:text-left space-y-6">
+              {/* Pill Badge */}
+              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-blue-50 border border-blue-200/80 text-blue-700 text-xs font-semibold shadow-xs">
+                <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse"></span>
+                Modern GST & Transport Billing for India
+              </div>
+
+              {/* Main Headline */}
+              <h1 className="text-4xl sm:text-5xl lg:text-5xl xl:text-6xl font-black tracking-tight text-slate-900 leading-[1.12]">
+                Generate Compliant{" "}
+                <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 via-indigo-600 to-sky-600">
+                  GST & Fuel Invoices
+                </span>{" "}
+                in Seconds.
+              </h1>
+
+              {/* Subtitle */}
+              <p className="text-lg text-slate-600 leading-relaxed font-normal">
+                Automated CGST/SGST tax splitting, vector PDF exports, multi-company profiles, Lorry Receipts, and instant client email dispatch. Built for fuel dealers, transport fleets, and modern Indian businesses.
+              </p>
+
+              {/* Hero CTAs */}
+              <div className="pt-2 flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4">
+                <Link
+                  to={user ? "/invoice-generator" : "/signup"}
+                  id="hero-primary-cta"
+                  className="w-full sm:w-auto inline-flex items-center justify-center gap-3 bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-700 hover:from-blue-700 hover:to-indigo-800 text-white text-base font-bold px-8 py-3.5 rounded-xl shadow-lg shadow-blue-500/25 hover:shadow-xl hover:shadow-blue-500/35 transition-all transform hover:-translate-y-0.5 cursor-pointer"
+                >
+                  <HiOutlineDocumentText className="w-5 h-5" />
+                  {user ? "Generate New Invoice" : "Create Invoice Free"}
+                  <HiOutlineArrowRight className="w-4 h-4" />
+                </Link>
+
+                <a
+                  href="#calculator"
+                  className="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-white hover:bg-slate-50 text-slate-700 text-base font-semibold px-6 py-3.5 rounded-xl border border-slate-200 shadow-xs hover:border-slate-300 transition-all cursor-pointer"
+                >
+                  <HiOutlineCalculator className="w-5 h-5 text-blue-600" />
+                  Try Live GST Calculator
+                </a>
+              </div>
+
+              {/* Trust points */}
+              <div className="pt-4 flex flex-wrap items-center justify-center lg:justify-start gap-y-2 gap-x-6 text-xs text-slate-500 font-medium">
+                <span className="flex items-center gap-1.5 text-slate-700">
+                  <HiOutlineCheckCircle className="w-4 h-4 text-emerald-600" /> No credit card required
+                </span>
+                <span className="flex items-center gap-1.5 text-slate-700">
+                  <HiOutlineCheckCircle className="w-4 h-4 text-emerald-600" /> Auto CGST/SGST 2.5% or custom
+                </span>
+                <span className="flex items-center gap-1.5 text-slate-700">
+                  <HiOutlineCheckCircle className="w-4 h-4 text-emerald-600" /> Direct vector PDF download
+                </span>
+              </div>
             </div>
 
-            {/* Main Headline */}
-            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black tracking-tight text-slate-900 leading-[1.15]">
-              Generate Compliant{" "}
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 via-indigo-600 to-sky-600">
-                GST & Fuel Invoices
-              </span>{" "}
-              in Seconds.
-            </h1>
-
-            {/* Subtitle */}
-            <p className="text-lg sm:text-xl text-slate-600 leading-relaxed font-normal">
-              Automated CGST/SGST tax splitting, vector PDF exports, multi-company profiles, Lorry Receipts, and instant client email dispatch. Built for fuel dealers, transport fleets, and modern Indian businesses.
-            </p>
-
-            {/* Hero CTAs */}
-            <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-4">
-              <Link
-                to={user ? "/invoice-generator" : "/signup"}
-                id="hero-primary-cta"
-                className="w-full sm:w-auto inline-flex items-center justify-center gap-3 bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-700 hover:from-blue-700 hover:to-indigo-800 text-white text-base font-bold px-8 py-3.5 rounded-xl shadow-lg shadow-blue-500/25 hover:shadow-xl hover:shadow-blue-500/35 transition-all transform hover:-translate-y-0.5 cursor-pointer"
+            {/* Interactive 3D BillCraft Studio */}
+            <div className="lg:col-span-6">
+              <Suspense
+                fallback={
+                  <div className="h-[450px] sm:h-[510px] w-full rounded-3xl bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 border border-slate-800 flex items-center justify-center text-slate-300 text-sm font-medium shadow-2xl">
+                    Loading Interactive 3D Studio...
+                  </div>
+                }
               >
-                <HiOutlineDocumentText className="w-5 h-5" />
-                {user ? "Generate New Invoice" : "Create Invoice Free"}
-                <HiOutlineArrowRight className="w-4 h-4" />
-              </Link>
-
-              <a
-                href="#calculator"
-                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-white hover:bg-slate-50 text-slate-700 text-base font-semibold px-6 py-3.5 rounded-xl border border-slate-200 shadow-xs hover:border-slate-300 transition-all cursor-pointer"
-              >
-                <HiOutlineCalculator className="w-5 h-5 text-blue-600" />
-                Try Live GST Calculator
-              </a>
-            </div>
-
-            {/* Trust points */}
-            <div className="pt-6 flex flex-wrap items-center justify-center gap-y-2 gap-x-6 text-xs text-slate-500 font-medium">
-              <span className="flex items-center gap-1.5 text-slate-700">
-                <HiOutlineCheckCircle className="w-4 h-4 text-emerald-600" /> No credit card required
-              </span>
-              <span className="flex items-center gap-1.5 text-slate-700">
-                <HiOutlineCheckCircle className="w-4 h-4 text-emerald-600" /> Auto CGST/SGST 2.5% or custom
-              </span>
-              <span className="flex items-center gap-1.5 text-slate-700">
-                <HiOutlineCheckCircle className="w-4 h-4 text-emerald-600" /> Direct vector PDF download
-              </span>
+                <BillCraft3DScene
+                  mode={sceneMode}
+                  onModeChange={(nextMode) => {
+                    setSceneMode(nextMode);
+                    if (nextMode === "gst" || nextMode === "fuel") {
+                      setPreviewTab(nextMode);
+                    }
+                  }}
+                  subtotal={calcSubtotal}
+                  cgst={calcCgst}
+                  sgst={calcSgst}
+                  grandTotal={calcGrandTotal}
+                  gstPercent={calcGstPercent}
+                />
+              </Suspense>
             </div>
           </div>
 
@@ -469,7 +500,10 @@ const Home = () => {
 
                 <div className="flex items-center gap-2 bg-slate-800 p-1 rounded-lg text-xs font-semibold">
                   <button
-                    onClick={() => setPreviewTab("gst")}
+                    onClick={() => {
+                      setPreviewTab("gst");
+                      setSceneMode("gst");
+                    }}
                     className={`px-3 py-1 rounded-md transition-all ${
                       previewTab === "gst" ? "bg-blue-600 text-white shadow-xs" : "text-slate-400 hover:text-white"
                     }`}
@@ -477,7 +511,10 @@ const Home = () => {
                     GST Tax Invoice
                   </button>
                   <button
-                    onClick={() => setPreviewTab("fuel")}
+                    onClick={() => {
+                      setPreviewTab("fuel");
+                      setSceneMode("fuel");
+                    }}
                     className={`px-3 py-1 rounded-md transition-all ${
                       previewTab === "fuel" ? "bg-blue-600 text-white shadow-xs" : "text-slate-400 hover:text-white"
                     }`}
